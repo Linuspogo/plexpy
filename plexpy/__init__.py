@@ -58,6 +58,7 @@ VERBOSE = True
 DAEMON = False
 CREATEPID = False
 PIDFILE = None
+NOFORK = False
 
 SCHED = BackgroundScheduler()
 SCHED_LOCK = threading.Lock()
@@ -496,7 +497,8 @@ def dbcheck():
     # user_login table :: This table keeps record of the PlexPy guest logins
     c_db.execute(
         'CREATE TABLE IF NOT EXISTS user_login (id INTEGER PRIMARY KEY AUTOINCREMENT, '
-        'timestamp INTEGER, user_id INTEGER, user TEXT, user_group TEXT, ip_address TEXT, host TEXT, user_agent TEXT)'
+        'timestamp INTEGER, user_id INTEGER, user TEXT, user_group TEXT, '
+        'ip_address TEXT, host TEXT, user_agent TEXT, success INTEGER DEFAULT 1)'
     )
 
     # notifiers table :: This table keeps record of the notification agent settings
@@ -517,7 +519,8 @@ def dbcheck():
         'on_resume_body TEXT, on_buffer_body TEXT, on_watched_body TEXT, '
         'on_created_body TEXT, on_extdown_body TEXT, on_intdown_body TEXT, '
         'on_extup_body TEXT, on_intup_body TEXT, on_pmsupdate_body TEXT, '
-        'on_concurrent_body TEXT, on_newdevice_body TEXT, on_plexpyupdate_body TEXT)'
+        'on_concurrent_body TEXT, on_newdevice_body TEXT, on_plexpyupdate_body TEXT, '
+        'custom_conditions TEXT, custom_conditions_logic TEXT)'
     )
 
     # poster_urls table :: This table keeps record of the notification poster urls
@@ -538,6 +541,20 @@ def dbcheck():
     c_db.execute(
         'CREATE TABLE IF NOT EXISTS mobile_devices (id INTEGER PRIMARY KEY AUTOINCREMENT, '
         'device_id TEXT NOT NULL UNIQUE, device_token TEXT, device_name TEXT, friendly_name TEXT)'
+    )
+
+    # tvmaze_lookup table :: This table keeps record of the TVmaze lookups
+    c_db.execute(
+        'CREATE TABLE IF NOT EXISTS tvmaze_lookup (id INTEGER PRIMARY KEY AUTOINCREMENT, '
+        'rating_key INTEGER, thetvdb_id INTEGER, imdb_id TEXT, '
+        'tvmaze_id INTEGER, tvmaze_url TEXT, tvmaze_json TEXT)'
+    )
+
+    # themoviedb_lookup table :: This table keeps record of the TheMovieDB lookups
+    c_db.execute(
+        'CREATE TABLE IF NOT EXISTS themoviedb_lookup (id INTEGER PRIMARY KEY AUTOINCREMENT, '
+        'rating_key INTEGER, thetvdb_id INTEGER, imdb_id TEXT, '
+        'themoviedb_id INTEGER, themoviedb_url TEXT, themoviedb_json TEXT)'
     )
 
     # Upgrade sessions table from earlier versions
@@ -1067,11 +1084,70 @@ def dbcheck():
         logger.warn(u"Failed to recreate mobile_devices table.")
         pass
 
+    # Upgrade notifiers table from earlier versions
+    try:
+        c_db.execute('SELECT custom_conditions FROM notifiers')
+    except sqlite3.OperationalError:
+        logger.debug(u"Altering database. Updating database table notifiers.")
+        c_db.execute(
+            'ALTER TABLE notifiers ADD COLUMN custom_conditions TEXT'
+        )
+        c_db.execute(
+            'ALTER TABLE notifiers ADD COLUMN custom_conditions_logic TEXT'
+        )
+
+    # Upgrade tvmaze_lookup table from earlier versions
+    try:
+        c_db.execute('SELECT rating_key FROM tvmaze_lookup')
+    except sqlite3.OperationalError:
+        logger.debug(u"Altering database. Updating database table tvmaze_lookup.")
+        c_db.execute(
+            'ALTER TABLE tvmaze_lookup ADD COLUMN rating_key INTEGER'
+        )
+        c_db.execute(
+            'DROP INDEX IF EXISTS idx_tvmaze_lookup_thetvdb_id'
+        )
+        c_db.execute(
+            'DROP INDEX IF EXISTS idx_tvmaze_lookup_imdb_id'
+        )
+
+    # Upgrade themoviedb_lookup table from earlier versions
+    try:
+        c_db.execute('SELECT rating_key FROM themoviedb_lookup')
+    except sqlite3.OperationalError:
+        logger.debug(u"Altering database. Updating database table themoviedb_lookup.")
+        c_db.execute(
+            'ALTER TABLE themoviedb_lookup ADD COLUMN rating_key INTEGER'
+        )
+        c_db.execute(
+            'DROP INDEX IF EXISTS idx_themoviedb_lookup_thetvdb_id'
+        )
+        c_db.execute(
+            'DROP INDEX IF EXISTS idx_themoviedb_lookup_imdb_id'
+        )
+
+    # Upgrade user_login table from earlier versions
+    try:
+        c_db.execute('SELECT success FROM user_login')
+    except sqlite3.OperationalError:
+        logger.debug(u"Altering database. Updating database table user_login.")
+        c_db.execute(
+            'ALTER TABLE user_login ADD COLUMN success INTEGER DEFAULT 1'
+        )
+
     # Add "Local" user to database as default unauthenticated user.
     result = c_db.execute('SELECT id FROM users WHERE username = "Local"')
     if not result.fetchone():
         logger.debug(u"User 'Local' does not exist. Adding user.")
         c_db.execute('INSERT INTO users (user_id, username) VALUES (0, "Local")')
+    
+    # Create table indices
+    c_db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tvmaze_lookup ON tvmaze_lookup (rating_key)'
+    )
+    c_db.execute(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_themoviedb_lookup ON themoviedb_lookup (rating_key)'
+    )   
 
     conn_db.commit()
     c_db.close()
@@ -1079,6 +1155,8 @@ def dbcheck():
 def upgrade():
     if CONFIG.UPDATE_NOTIFIERS_DB:
         notifiers.upgrade_config_to_db()
+    if CONFIG.UPDATE_LIBRARIES_DB_NOTIFY:
+        libraries.update_libraries_db_notify()
 
 def shutdown(restart=False, update=False, checkout=False):
     cherrypy.engine.exit()
@@ -1118,13 +1196,16 @@ def shutdown(restart=False, update=False, checkout=False):
         args += ARGS
         if '--nolaunch' not in args:
             args += ['--nolaunch']
-        logger.info(u"Restarting PlexPy with %s", args)
 
         # os.execv fails with spaced names on Windows
         # https://bugs.python.org/issue19066
-        if os.name == 'nt':
+        if NOFORK:
+            logger.info('Running as service, not forking. Exiting...')
+        elif os.name == 'nt':
+            logger.info('Restarting PlexPy with %s', args)
             subprocess.Popen(args, cwd=os.getcwd())
         else:
+            logger.info('Restarting PlexPy with %s', args)
             os.execv(exe, args)
 
     os._exit(0)

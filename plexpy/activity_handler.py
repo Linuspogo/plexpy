@@ -80,8 +80,9 @@ class ActivityHandler(object):
                 if not session:
                     return
 
-            logger.debug(u"PlexPy ActivityHandler :: Session %s started by user %s with ratingKey %s."
-                         % (str(session['session_key']), str(session['user_id']), str(session['rating_key'])))
+            logger.debug(u"PlexPy ActivityHandler :: Session %s started by user %s (%s) with ratingKey %s (%s)."
+                         % (str(session['session_key']), str(session['user_id']), session['username'],
+                            str(session['rating_key']), session['full_title']))
 
             plexpy.NOTIFY_QUEUE.put({'stream_data': session, 'notify_action': 'on_play'})
 
@@ -129,7 +130,8 @@ class ActivityHandler(object):
             # Update the session state and viewOffset
             ap.set_session_state(session_key=self.get_session_key(),
                                  state=self.timeline['state'],
-                                 view_offset=self.timeline['viewOffset'])
+                                 view_offset=self.timeline['viewOffset'],
+                                 stopped=int(time.time()))
 
             # Retrieve the session data from our temp table
             db_session = ap.get_session_by_key(session_key=self.get_session_key())
@@ -147,7 +149,8 @@ class ActivityHandler(object):
             # Update the session state and viewOffset
             ap.set_session_state(session_key=self.get_session_key(),
                                  state=self.timeline['state'],
-                                 view_offset=self.timeline['viewOffset'])
+                                 view_offset=self.timeline['viewOffset'],
+                                 stopped=int(time.time()))
 
             # Retrieve the session data from our temp table
             db_session = ap.get_session_by_key(session_key=self.get_session_key())
@@ -171,6 +174,12 @@ class ActivityHandler(object):
             # Get our last triggered time
             buffer_last_triggered = ap.get_session_buffer_trigger_time(self.get_session_key())
 
+            # Update the session state and viewOffset
+            ap.set_session_state(session_key=self.get_session_key(),
+                                 state=self.timeline['state'],
+                                 view_offset=self.timeline['viewOffset'],
+                                 stopped=int(time.time()))
+
             time_since_last_trigger = 0
             if buffer_last_triggered:
                 logger.debug(u"PlexPy ActivityHandler :: Session %s buffer last triggered at %s." %
@@ -180,6 +189,9 @@ class ActivityHandler(object):
             if plexpy.CONFIG.BUFFER_THRESHOLD > 0 and (current_buffer_count >= plexpy.CONFIG.BUFFER_THRESHOLD and \
                 time_since_last_trigger == 0 or time_since_last_trigger >= plexpy.CONFIG.BUFFER_WAIT):
                 ap.set_session_buffer_trigger_time(session_key=self.get_session_key())
+
+                # Retrieve the session data from our temp table
+                db_session = ap.get_session_by_key(session_key=self.get_session_key())
 
                 plexpy.NOTIFY_QUEUE.put({'stream_data': db_session, 'notify_action': 'on_buffer'})
 
@@ -203,7 +215,8 @@ class ActivityHandler(object):
                     if this_state == 'playing':
                         ap.set_session_state(session_key=self.get_session_key(),
                                              state=this_state,
-                                             view_offset=self.timeline['viewOffset'])
+                                             view_offset=self.timeline['viewOffset'],
+                                             stopped=int(time.time()))
                     # Start our state checks
                     if this_state != last_state:
                         if this_state == 'paused':
@@ -226,7 +239,9 @@ class ActivityHandler(object):
                 if this_state != 'buffering':
                     progress_percent = helpers.get_percent(db_session['view_offset'], db_session['duration'])
                     notify_states = notification_handler.get_notify_state(session=db_session)
-                    if progress_percent >= plexpy.CONFIG.NOTIFY_WATCHED_PERCENT \
+                    if (db_session['media_type'] == 'movie' and progress_percent >= plexpy.CONFIG.MOVIE_WATCHED_PERCENT or
+                        db_session['media_type'] == 'episode' and progress_percent >= plexpy.CONFIG.TV_WATCHED_PERCENT or
+                        db_session['media_type'] == 'track' and progress_percent >= plexpy.CONFIG.MUSIC_WATCHED_PERCENT) \
                         and not any(d['notify_action'] == 'on_watched' for d in notify_states):
                         plexpy.NOTIFY_QUEUE.put({'stream_data': db_session, 'notify_action': 'on_watched'})
 

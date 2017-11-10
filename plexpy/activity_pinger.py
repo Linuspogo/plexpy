@@ -41,7 +41,7 @@ def check_active_sessions(ws_request=False):
         session_list = pms_connect.get_current_activity()
         monitor_db = database.MonitorDatabase()
         monitor_process = activity_processor.ActivityProcessor()
-        # logger.debug(u"PlexPy Monitor :: Checking for active streams.")
+        logger.debug(u"PlexPy Monitor :: Checking for active streams.")
 
         if session_list:
             media_container = session_list['sessions']
@@ -131,7 +131,9 @@ def check_active_sessions(ws_request=False):
                             if session['state'] != 'buffering':
                                 progress_percent = helpers.get_percent(session['view_offset'], session['duration'])
                                 notify_states = notification_handler.get_notify_state(session=session)
-                                if progress_percent >= plexpy.CONFIG.NOTIFY_WATCHED_PERCENT \
+                                if (session['media_type'] == 'movie' and progress_percent >= plexpy.CONFIG.MOVIE_WATCHED_PERCENT or
+                                    session['media_type'] == 'episode' and progress_percent >= plexpy.CONFIG.TV_WATCHED_PERCENT or
+                                    session['media_type'] == 'track' and progress_percent >= plexpy.CONFIG.MUSIC_WATCHED_PERCENT) \
                                     and not any(d['notify_action'] == 'on_watched' for d in notify_states):
                                     plexpy.NOTIFY_QUEUE.put({'stream_data': stream, 'notify_action': 'on_watched'})
 
@@ -149,7 +151,9 @@ def check_active_sessions(ws_request=False):
 
                         progress_percent = helpers.get_percent(stream['view_offset'], stream['duration'])
                         notify_states = notification_handler.get_notify_state(session=stream)
-                        if progress_percent >= plexpy.CONFIG.NOTIFY_WATCHED_PERCENT \
+                        if (stream['media_type'] == 'movie' and progress_percent >= plexpy.CONFIG.MOVIE_WATCHED_PERCENT or
+                            stream['media_type'] == 'episode' and progress_percent >= plexpy.CONFIG.TV_WATCHED_PERCENT or
+                            stream['media_type'] == 'track' and progress_percent >= plexpy.CONFIG.MUSIC_WATCHED_PERCENT) \
                             and not any(d['notify_action'] == 'on_watched' for d in notify_states):
                             plexpy.NOTIFY_QUEUE.put({'stream_data': stream, 'notify_action': 'on_watched'})
 

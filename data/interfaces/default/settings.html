@@ -119,14 +119,34 @@
                             <p class="help-block">Include current activity in the history tables. Statistics will not be counted until the stream has ended.</p>
                         </div>
                         <div class="form-group">
-                            <label for="notify_watched_percent">Watched Percent</label>
+                            <label for="movie_watched_percent">Movie Watched Percent</label>
                             <div class="row">
                                 <div class="col-md-2">
-                                    <input type="text" class="form-control" data-parsley-type="integer" id="notify_watched_percent" name="notify_watched_percent" value="${config['notify_watched_percent']}" size="5" data-parsley-range="[50,95]" data-parsley-trigger="change" data-parsley-errors-container="#notify_watched_percent_error" required>
+                                    <input type="text" class="form-control" data-parsley-type="integer" id="movie_watched_percent" name="movie_watched_percent" value="${config['movie_watched_percent']}" size="5" data-parsley-range="[50,95]" data-parsley-trigger="change" data-parsley-errors-container="#movie_watched_percent_error" required>
                                 </div>
-                                <div id="notify_watched_percent_error" class="alert alert-danger settings-alert" role="alert"></div>
+                                <div id="movie_watched_percent_error" class="alert alert-danger settings-alert" role="alert"></div>
                             </div>
-                            <p class="help-block">Set the percentage for a media item to be considered as watched. Minimum 50, Maximum 95.</p>
+                            <p class="help-block">Set the percentage for a movie to be considered as watched. Minimum 50, Maximum 95.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="tv_watched_percent">TV Episode Watched Percent</label>
+                            <div class="row">
+                                <div class="col-md-2">
+                                    <input type="text" class="form-control" data-parsley-type="integer" id="tv_watched_percent" name="tv_watched_percent" value="${config['tv_watched_percent']}" size="5" data-parsley-range="[50,95]" data-parsley-trigger="change" data-parsley-errors-container="#tv_watched_percent_error" required>
+                                </div>
+                                <div id="tv_watched_percent_error" class="alert alert-danger settings-alert" role="alert"></div>
+                            </div>
+                            <p class="help-block">Set the percentage for a TV episode to be considered as watched. Minimum 50, Maximum 95.</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="music_watched_percent">Music Listened Percent</label>
+                            <div class="row">
+                                <div class="col-md-2">
+                                    <input type="text" class="form-control" data-parsley-type="integer" id="music_watched_percent" name="music_watched_percent" value="${config['music_watched_percent']}" size="5" data-parsley-range="[50,95]" data-parsley-trigger="change" data-parsley-errors-container="#music_watched_percent_error" required>
+                                </div>
+                                <div id="music_watched_percent_error" class="alert alert-danger settings-alert" role="alert"></div>
+                            </div>
+                            <p class="help-block">Set the percentage for a music track to be considered as listened. Minimum 50, Maximum 95.</p>
                         </div>
 
                         <div class="padded-header">
@@ -280,32 +300,6 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label for="home_stats_length">Time Frame</label>
-                            <div class="row">
-                                <div class="col-md-2">
-                                    <input type="text" class="form-control" data-parsley-type="integer" id="home_stats_length" name="home_stats_length" value="${config['home_stats_length']}" size="3" data-parsley-min="0" data-parsley-trigger="change" data-parsley-errors-container="#home_stats_length_error" required>
-                                </div>
-                                <div id="home_stats_length_error" class="alert alert-danger settings-alert" role="alert"></div>
-                            </div>
-                            <p class="help-block">Specify the number of days for the watch statistics on the home page. Default is 30 days.</p>
-                        </div>
-                        <div class="form-group">
-                            <label for="home_stats_count">Top Lists</label>
-                            <div class="row">
-                                <div class="col-md-2">
-                                    <input type="text" class="form-control" data-parsley-type="integer" id="home_stats_count" name="home_stats_count" value="${config['home_stats_count']}" size="3" data-parsley-range="[0,10]" data-parsley-trigger="change" data-parsley-errors-container="#home_stats_count_error" required>
-                                </div>
-                                <div id="home_stats_count_error" class="alert alert-danger settings-alert" role="alert"></div>
-                            </div>
-                            <p class="help-block">Specify the number of items to show in the top lists for the watch statistics on the home page. Maximum 10 items, default 5 items, 0 to disable.</p>
-                        </div>
-                        <div class="checkbox">
-                            <label>
-                                <input type="checkbox" id="home_stats_type" name="home_stats_type" value="1" ${config['home_stats_type']}> Use Play Duration
-                            </label>
-                            <p class="help-block">Use play duration instead of play count to generate statistics.</p>
-                        </div>
 
                         <div class="padded-header">
                             <h3>Library Statistics</h3>
@@ -334,7 +328,7 @@
                             <h3>Web Interface</h3>
                         </div>
 
-                        <p class="help-block">Web interface changes require a restart.</p>
+                        <p class="help-block">Note: Web interface changes require a restart.</p>
                         <div class="form-group">
                             <label for="http_host">HTTP Host</label>
                             <div class="row">
@@ -342,7 +336,7 @@
                                     <input type="text" class="form-control http-settings" id="http_host" name="http_host" value="${config['http_host']}" data-parsley-trigger="change" required>
                                 </div>
                             </div>
-                            <p class="help-block">e.g. localhost or an IP, such as 0.0.0.0</p>
+                            <p class="help-block">localhost or an IP address to bind the web server to. Default 0.0.0.0 to bind to all interfaces.</p>
                         </div>
                         <div class="form-group">
                             <label for="http_port">HTTP Port</label>
@@ -455,7 +449,7 @@
                             <label for="http_password">HTTP Password</label>
                             <div class="row">
                                 <div class="col-md-4">
-                                    <input type="password" class="form-control auth-settings" id="http_password" name="http_password" value="${config['http_password']}" size="30">
+                                    <input type="password" class="form-control auth-settings" id="http_password" name="http_password" value="${config['http_password']}" size="30" autocomplete="new-password">
                                 </div>
                                 <div id="http_hash_password_error" class="alert alert-danger settings-alert" role="alert"></div>
                             </div>
@@ -527,7 +521,6 @@
                             <h3>Plex Media Server <small style="color: #fff;">Version <span id="pms_version">${config['pms_version']}</span></small></h3>
                         </div>
 
-                        <p class="help-block">If you're using websocket monitoring, any server changes require a restart of PlexPy.</p>
                         <div class="checkbox">
                             <label>
                                 <input type="checkbox" id="monitor_pms_updates" name="monitor_pms_updates" value="1" ${config['monitor_pms_updates']}> Monitor Plex Updates
@@ -615,7 +608,8 @@
                                 <div id="pms_logs_folder_error" class="alert alert-danger settings-alert" role="alert"></div>
                             </div>
                             <p class="help-block">
-                                Set the complete folder path where your Plex Server logs are, shortcuts are not recognized.
+                                Optional: Set your Plex logs folder to use PlexPy as a log viewer. Plex logs are not needed for PlexPy to function.
+                                A complete folder path is required, shortcuts are not recognized.
                                 <a href="${anon_url('https://support.plex.tv/hc/en-us/articles/200250417-Plex-Media-Server-Log-Files')}" target="_blank">Click here</a> for help.
                             </p>
                         </div>
@@ -715,22 +709,6 @@
                             <h3>History Logging</h3>
                         </div>
 
-                        <p class="help-block">Keep records of all movie, TV show, or music items played from your Plex Media Server.</p>
-                        <div class="checkbox">
-                            <label>
-                                <input type="checkbox" id="movie_logging_enable" name="movie_logging_enable" value="1" ${config['movie_logging_enable']}> Enable Movie Logging
-                            </label>
-                        </div>
-                        <div class="checkbox">
-                            <label>
-                                <input type="checkbox" id="tv_logging_enable" name="tv_logging_enable" value="1" ${config['tv_logging_enable']}> Enable TV Show Logging
-                            </label>
-                        </div>
-                        <div class="checkbox">
-                            <label>
-                                <input type="checkbox" id="music_logging_enable" name="music_logging_enable" value="1" ${config['music_logging_enable']}> Enable Music Logging
-                            </label>
-                        </div>
                         <div class="form-group">
                             <label for="logging_ignore_interval">Ignore Interval</label>
                             <div class="row">
@@ -775,7 +753,7 @@
                     <div role="tabpanel" class="tab-pane" id="tabs-notifications">
 
                         <div class="padded-header">
-                            <h3>Global Notification Settings</h3>
+                            <h3>3rd Party APIs</h3>
                         </div>
 
                         <div class="checkbox">
@@ -795,6 +773,18 @@
                                 <p class="help-block">Enter your Imgur API client ID in order to upload posters. 
                                     You can register a new application <a href="${anon_url('https://api.imgur.com/oauth2/addclient')}" target="_blank">here</a>.<br />
                             </div>
+                        </div>
+                        <div class="checkbox">
+                            <label>
+                                <input type="checkbox" name="themoviedb_lookup" id="themoviedb_lookup" value="1" ${config['themoviedb_lookup']}> Lookup TheMovieDB Links
+                            </label>
+                            <p class="help-block">Enable to lookup links to TheMovieDB for movies and TV shows when available.</p>
+                        </div>
+                        <div class="checkbox">
+                            <label>
+                                <input type="checkbox" name="tvmaze_lookup" id="tvmaze_lookup" value="1" ${config['tvmaze_lookup']}> Lookup TVmaze Links
+                            </label>
+                            <p class="help-block">Enable to lookup links to TVmaze for TV shows when available.</p>
                         </div>
 
                         <div class="padded-header">
@@ -976,7 +966,7 @@
                                     <input type="text" class="form-control" id="git_path" name="git_path" value="${config['git_path']}" size="30">
                                 </div>
                             </div>
-                            <p class="help-block">The path to your git environment variable. Leave blank for default.</p>
+                            <p class="help-block">Optional: The path to your git environment variable. Leave blank for default.</p>
                         </div>
                         % endif
 
@@ -1161,262 +1151,26 @@
                 <h4 class="modal-title">Date &amp; Time Format Options</h4>
             </div>
             <div class="modal-body">
+                % for category in common.DATE_TIME_FORMATS:
                 <table class="notification-params time-options">
                     <thead>
                         <tr>
                             <th colspan="3">
-                                Year
+                                ${category['category']}
                             </th>
                         </tr>
                     </thead>
                     <tbody>
+                        % for parameter in category['parameters']:
                         <tr>
-                            <td><strong>YYYY</strong></td>
-                            <td>Numeric, four digits</td>
-                            <td>E.g. 1999, 2003</td>
+                            <td><strong>${parameter['value']}</strong></td>
+                            <td>${parameter['description']}</td>
+                            <td>${parameter['example']}</td>
                         </tr>
-                        <tr>
-                            <td><strong>YY</strong></td>
-                            <td>Numeric, two digits</td>
-                            <td>E.g. 99, 03</td>
-                        </tr>
+                        % endfor
                     </tbody>
                 </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Month
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>MMMM</strong></td>
-                            <td>Textual, full</td>
-                            <td>January-December</td>
-                        </tr>
-                        <tr>
-                            <td><strong>MMM</strong></td>
-                            <td>Textual, three letters</td>
-                            <td>Jan-Dec</td>
-                        </tr>
-                        <tr>
-                            <td><strong>MM</strong></td>
-                            <td>Numeric, with leading zeros</td>
-                            <td>01-12</td>
-                        </tr>
-                        <tr>
-                            <td><strong>M</strong></td>
-                            <td>Numeric, without leading zeros</td>
-                            <td>1-12</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Day of the Year
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>DDDD</strong></td>
-                            <td>Numeric, with leading zeros</td>
-                            <td>001-365</td>
-                        </tr>
-                        <tr>
-                            <td><strong>DDD</strong></td>
-                            <td>Numeric, without leading zeros</td>
-                            <td>1-365</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Day of the Month
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>DD</strong></td>
-                            <td>Numeric, with leading zeros</td>
-                            <td>01-31</td>
-                        </tr>
-                        <tr>
-                            <td><strong>D</strong></td>
-                            <td>Numeric, without leading zeros</td>
-                            <td>1-31</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Do</strong></td>
-                            <td>Numeric, with suffix</td>
-                            <td>E.g. 1st, 2nd ... 31st.</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Day of the Week
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>dddd</strong></td>
-                            <td>Textual, full</td>
-                            <td>Sunday-Saturday</td>
-                        </tr>
-                        <tr>
-                            <td><strong>ddd</strong></td>
-                            <td>Textual, three letters</td>
-                            <td>Sun-Sat</td>
-                        </tr>
-                        <tr>
-                            <td><strong>d</strong></td>
-                            <td>Numeric</td>
-                            <td>0-6</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Hour
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>HH</strong></td>
-                            <td>24-hour, with leading zeros</td>
-                            <td>00-23</td>
-                        </tr>
-                        <tr>
-                            <td><strong>H</strong></td>
-                            <td>24-hour, without leading zeros</td>
-                            <td>0-23</td>
-                        </tr>
-                        <tr>
-                            <td><strong>hh</strong></td>
-                            <td>12-hour, with leading zeros</td>
-                            <td>01-12</td>
-                        </tr>
-                        <tr>
-                            <td><strong>h</strong></td>
-                            <td>12-hour, without leading zeros</td>
-                            <td>1-12</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Minute
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>mm</strong></td>
-                            <td>Numeric, with leading zeros</td>
-                            <td>00-59</td>
-                        </tr>
-                        <tr>
-                            <td><strong>m</strong></td>
-                            <td>Numeric, without leading zeros</td>
-                            <td>0-59</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Second
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>ss</strong></td>
-                            <td>Numeric, with leading zeros</td>
-                            <td>00-59</td>
-                        </tr>
-                        <tr>
-                            <td><strong>s</strong></td>
-                            <td>Numeric, without leading zeros</td>
-                            <td>0-59</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                AM / PM
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>A</strong></td>
-                            <td>AM/PM uppercase</td>
-                            <td>AM, PM</td>
-                        </tr>
-                        <tr>
-                            <td><strong>a</strong></td>
-                            <td width="300">am/pm lowercase</td>
-                            <td>am, pm</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Timezone
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>ZZ</strong></td>
-                            <td>UTC offset</td>
-                            <td>E.g. +0100, -0700</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Z</strong></td>
-                            <td>UTC offset</td>
-                            <td>E.g. +01:00, -07:00</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <table class="notification-params time-options">
-                    <thead>
-                        <tr>
-                            <th colspan="3">
-                                Timestamp
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><strong>X</strong></td>
-                            <td>Unix timestamp</td>
-                            <td>E.g. 1456887825</td>
-                        </tr>
-                    </tbody>
-                </table>
+                % endfor
             </div>
             <div class="modal-footer"></div>
         </div>
@@ -1509,776 +1263,33 @@
                     <p class="help-block">
                         If the value for a selected parameter cannot be provided, it will display as blank.
                     </p>
+                    % for category in common.NOTIFICATION_PARAMETERS:
                     <table class="notification-params">
                         <thead>
                             <tr>
                                 <th colspan="2">
-                                    Global
+                                    ${category['category']}
                                 </th>
                             </tr>
                         </thead>
                         <tbody>
+                            % for parameter in category['parameters']:
                             <tr>
-                                <td><strong>{plexpy_version}</strong></td>
-                                <td>The current version of PlexPy.</td>
+                                <td><strong>{${parameter['value']}}</strong></td>
+                                <td>
+                                    ${parameter['description']}
+                                    % if parameter.get('example'):
+                                    <span class="small-muted">(${parameter['example']})</span>
+                                    % endif
+                                    % if parameter.get('help_text'):
+                                    <p class="small-muted">(${parameter['help_text']})</p>
+                                    % endif
+                                </td>
                             </tr>
-                            <tr>
-                                <td><strong>{plexpy_branch}</strong></td>
-                                <td>The current git branch of PlexPy.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{plexpy_commit}</strong></td>
-                                <td>The current git commit hash of PlexPy.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{server_name}</strong></td>
-                                <td>The name of your Plex Server.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{server_uptime}</strong></td>
-                                <td>The uptime (in days, hours, mins, secs) of your Plex Server.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{server_version}</strong></td>
-                                <td>The current version of your Plex Server.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{action}</strong></td>
-                                <td>The action that triggered the notification.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{datestamp}</strong></td>
-                                <td>The date (in date format) the notification was triggered.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{timestamp}</strong></td>
-                                <td>The time (in time format) the notification was triggered.</td>
-                            </tr>
+                            % endfor
                         </tbody>
                     </table>
-                    <table class="notification-params">
-                        <thead>
-                            <tr>
-                                <th colspan="2">
-                                    Stream Details
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><strong>{streams}</strong></td>
-                                <td>The number of concurrent streams.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{user_streams}</strong></td>
-                                <td>The number of concurrent streams by the person streaming.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{user}</strong></td>
-                                <td>The friendly name of the person streaming.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{username}</strong></td>
-                                <td>The username of the person streaming.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{device}</strong></td>
-                                <td>The type of client device being used for playback.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{platform}</strong></td>
-                                <td>The type of client platform being used for playback.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{product}</strong></td>
-                                <td>The type of client product being used for playback.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{player}</strong></td>
-                                <td>The name of the player being used for playback.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{ip_address}</strong></td>
-                                <td>The IP address of the device being used for playback.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_duration}</strong></td>
-                                <td>The duration (in minutes) for the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_time}</strong></td>
-                                <td>The duration (in time format) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{remaining_duration}</strong></td>
-                                <td>The remaining duration (in minutes) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{remaining_time}</strong></td>
-                                <td>The remaining duration (in time format) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{progress_duration}</strong></td>
-                                <td>The last reported offset (in minutes) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{progress_time}</strong></td>
-                                <td>The last reported offset (in time format) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{progress_percent}</strong></td>
-                                <td>The last reported progress percent of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_decision}</strong></td>
-                                <td>The transcode decisions of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_decision}</strong></td>
-                                <td>The video transcode decisions of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_decision}</strong></td>
-                                <td>The audio transcode decisions of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_decision}</strong></td>
-                                <td>The subtitle transcode decisions of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{quality_profile}</strong></td>
-                                <td>The Plex quality profile of the stream. <span class="small-muted">(e.g. Original, 4 Mbps 720p, etc.)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{optimized_version}</strong></td>
-                                <td>If the stream is an optimized version. <span class="small-muted">(0 or 1)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{optimized_version_profile}</strong></td>
-                                <td>The optimized version profile of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_local}</strong></td>
-                                <td>If the stream is local. <span class="small-muted">(0 or 1)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_location}</strong></td>
-                                <td>The network location of the stream. <span class="small-muted">(lan or wan)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_bandwidth}</strong></td>
-                                <td>
-                                    The required bandwidth (in kbps) of the stream.
-                                    <p class="small-muted">(<em>not</em> the used bandwidth)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_container}</strong></td>
-                                <td>The media container of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_bitrate}</strong></td>
-                                <td>The bitrate (in kbps) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_aspect_ratio}</strong></td>
-                                <td>The aspect ratio of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_codec}</strong></td>
-                                <td>The video codec of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_codec_level}</strong></td>
-                                <td>The video codec level of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_bitrate}</strong></td>
-                                <td>The video bitrate (in kbps) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_bit_depth}</strong></td>
-                                <td>The video bit depth of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_framerate}</strong></td>
-                                <td>The video framerate of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_ref_frames}</strong></td>
-                                <td>The video reference frames of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_resolution}</strong></td>
-                                <td>The video resolution of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_height}</strong></td>
-                                <td>The video height of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_width}</strong></td>
-                                <td>The video width of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_language}</strong></td>
-                                <td>The video language of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_video_language_code}</strong></td>
-                                <td>The video language code of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_bitrate}</strong></td>
-                                <td>The audio bitrate of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_bitrate_mode}</strong></td>
-                                <td>The audio bitrate mode of the stream. <span class="small-muted">(cbr or vbr)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_codec}</strong></td>
-                                <td>The audio codec of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_channels}</strong></td>
-                                <td>The audio channels of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_channel_layout}</strong></td>
-                                <td>The audio channel layout of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_sample_rate}</strong></td>
-                                <td>The audio sample rate (in Hz) of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_language}</strong></td>
-                                <td>The audio language of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_audio_language_code}</strong></td>
-                                <td>The audio language code of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_subtitle_codec}</strong></td>
-                                <td>The subtitle codec of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_subtitle_container}</strong></td>
-                                <td>The subtitle container of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_subtitle_format}</strong></td>
-                                <td>The subtitle format of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_subtitle_forced}</strong></td>
-                                <td>If the subtitles are forced. <span class="small-muted">(0 or 1)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_subtitle_language}</strong></td>
-                                <td>The subtitle language of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_subtitle_language_code}</strong></td>
-                                <td>The subtitle language code of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{stream_subtitle_location}</strong></td>
-                                <td>The subtitle location of the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_container}</strong></td>
-                                <td>The media container of the transcoded stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_video_codec}</strong></td>
-                                <td>The video codec of the transcoded stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_video_width}</strong></td>
-                                <td>The video width of the transcoded stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_video_height}</strong></td>
-                                <td>The video height of the transcoded stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_audio_codec}</strong></td>
-                                <td>The audio codec of the transcoded stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_audio_channels}</strong></td>
-                                <td>The audio channels of the transcoded stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_hardware}</strong></td>
-                                <td>If hardware transcoding is used. <span class="small-muted">(0 or 1)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{session_key}</strong></td>
-                                <td>The unique identifier for the session.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{transcode_key}</strong></td>
-                                <td>The unique identifier for the transcode session.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{session_id}</strong></td>
-                                <td>The unique identifier for the stream.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{user_id}</strong></td>
-                                <td>The unique identifier for the user.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{machine_id}</strong></td>
-                                <td>The unique identifier for the player.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <table class="notification-params">
-                        <thead>
-                            <tr>
-                                <th colspan="2">
-                                    Source Metadata Details
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><strong>{media_type}</strong></td>
-                                <td>The type of media. <span class="small-muted">(movie, show, season, episode, artist, album, track)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{title}</strong></td>
-                                <td>The full title of the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{library_name}</strong></td>
-                                <td>The library name of the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{show_name}</strong></td>
-                                <td>The title of the TV series.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{episode_name}</strong></td>
-                                <td>The title of the episode.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{artist_name}</strong></td>
-                                <td>The name of the artist.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{album_name}</strong></td>
-                                <td>The title of the album.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{track_name}</strong></td>
-                                <td>The title of the track.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{season_num}</strong></td>
-                                <td>The season number. <span class="small-muted">(e.g. 1, or 1-3)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{season_num00}</strong></td>
-                                <td>The two digit season number. <span class="small-muted">(e.g. 01, or 01-03)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{episode_num}</strong></td>
-                                <td>The episode number. <span class="small-muted">(e.g. 6, or 6-10)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{episode_num00}</strong></td>
-                                <td>The two digit episode number. <span class="small-muted">(e.g. 06, or 06-10)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{track_num}</strong></td>
-                                <td>The track number. <span class="small-muted">(e.g. 4, or 4-10)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{track_num00}</strong></td>
-                                <td>The two digit track number. <span class="small-muted">(e.g. 04, or 04-10)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{year}</strong></td>
-                                <td>The release year for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{release_date}</strong></td>
-                                <td>The release date (in date format) for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{air_date}</strong></td>
-                                <td>The air date (in date format) for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{added_date}</strong></td>
-                                <td>The date (in date format) the item was added to Plex.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{updated_date}</strong></td>
-                                <td>The date (in date format) the item was updated on Plex.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{last_viewed_date}</strong></td>
-                                <td>The date (in date format) the item was last viewed on Plex.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{studio}</strong></td>
-                                <td>The studio for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{content_rating}</strong></td>
-                                <td>The content rating for the item. <span class="small-muted">(e.g. TV-MA, TV-PG, etc.)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{directors}</strong></td>
-                                <td>A list of directors for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{writers}</strong></td>
-                                <td>A list of writers for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{actors}</strong></td>
-                                <td>A list of actors for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{genres}</strong></td>
-                                <td>A list of genres for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{summary}</strong></td>
-                                <td>A short plot summary for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{tagline}</strong></td>
-                                <td>A tagline for the media item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{rating}</strong></td>
-                                <td>The rating (out of 10) for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audience_rating}</strong></td>
-                                <td>
-                                    The audience rating (%) for the item.
-                                    <p class="small-muted">(Ratings source must be Rotten Tomatoes for the Plex Movie agent)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{duration}</strong></td>
-                                <td>The duration (in minutes) for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{poster_url}</strong></td>
-                                <td>A URL for the movie, TV show, or album poster.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{plex_url}</strong></td>
-                                <td>The Plex URL to your server for the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{imdb_id}</strong></td>
-                                <td>
-                                    The IMDB ID for the movie. <span class="small-muted">(e.g. tt2488496)</span>
-                                    <p class="small-muted">(PMS agent must be Plex Movie)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{imdb_url}</strong></td>
-                                <td>
-                                    The IMDB URL for the movie.
-                                    <p class="small-muted">(PMS agent must be Plex Movie)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{thetvdb_id}</strong></td>
-                                <td>
-                                    The TVDB ID for the TV show. <span class="small-muted">(e.g. 121361)</span>
-                                    <p class="small-muted">(PMS agent must be TheTVDB)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{thetvdb_url}</strong></td>
-                                <td>
-                                    The TVDB URL for the TV show.
-                                    <p class="small-muted">(PMS agent must be TheTVDB)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{themoviedb_id}</strong></td>
-                                <td>
-                                    The TMDb ID for the movie or TV show. <span class="small-muted">(e.g. 15260)</span>
-                                    <p class="small-muted">(PMS agent must be The Movie Database)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{themoviedb_url}</strong></td>
-                                <td>
-                                    The TMDb URL for the movie or TV show.
-                                    <p class="small-muted">(PMS agent must be The Movie Database)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{lastfm_url}</strong></td>
-                                <td>
-                                    The Last.fm URL for the album.
-                                    <p class="small-muted">(PMS agent must be Last.fm)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><strong>{trakt_url}</strong></td>
-                                <td>The trakt.tv URL for the movie or TV show.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{container}</strong></td>
-                                <td>The media container of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{bitrate}</strong></td>
-                                <td>The bitrate of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{aspect_ratio}</strong></td>
-                                <td>The aspect ratio of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_codec}</strong></td>
-                                <td>The video codec of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_codec_level}</strong></td>
-                                <td>The video codec level of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_bitrate}</strong></td>
-                                <td>The video bitrate of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_bit_depth}</strong></td>
-                                <td>The video bit depth of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_framerate}</strong></td>
-                                <td>The video framerate of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_ref_frames}</strong></td>
-                                <td>The video reference frames of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_resolution}</strong></td>
-                                <td>The video resolution of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_height}</strong></td>
-                                <td>The video height of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_width}</strong></td>
-                                <td>The video width of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_language}</strong></td>
-                                <td>The video language of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{video_language_code}</strong></td>
-                                <td>The video language code of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_bitrate}</strong></td>
-                                <td>The audio bitrate of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_bitrate_mode}</strong></td>
-                                <td>The audio bitrate mode of the original media. <span class="small-muted">(cbr or vbr)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_codec}</strong></td>
-                                <td>The audio codec of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_channels}</strong></td>
-                                <td>The audio channels of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_channel_layout}</strong></td>
-                                <td>The audio channel layout of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_language}</strong></td>
-                                <td>The audio language of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{audio_language_code}</strong></td>
-                                <td>The audio language code of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_codec}</strong></td>
-                                <td>The subtitle codec of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_container}</strong></td>
-                                <td>The subtitle container of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_format}</strong></td>
-                                <td>The subtitle format of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_forced}</strong></td>
-                                <td>If the subtitles are forced. <span class="small-muted">(0 or 1)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_location}</strong></td>
-                                <td>The subtitle location of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_language}</strong></td>
-                                <td>The subtitle language of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{subtitle_language_code}</strong></td>
-                                <td>The subtitle language code of the original media.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{file}</strong></td>
-                                <td>The file path to the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{file_size}</strong></td>
-                                <td>The file size of the item.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{section_id}</strong></td>
-                                <td>The unique identifier for the library.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{rating_key}</strong></td>
-                                <td>The unique identifier for the movie, episode, or track.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{parent_rating_key}</strong></td>
-                                <td>The unique identifier for the season or album.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{grandparent_rating_key}</strong></td>
-                                <td>The unique identifier for the TV show or artist.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{thumb}</strong></td>
-                                <td>The Plex thumbnail for the movie or episode.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{parent_thumb}</strong></td>
-                                <td>The Plex thumbnail for the season or album.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{grandparent_thumb}</strong></td>
-                                <td>The Plex thumbnail for the TV show or artist.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{poster_thumb}</strong></td>
-                                <td>The Plex thumbnail for the poster image.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <table class="notification-params">
-                        <thead>
-                            <tr>
-                                <th colspan="2">
-                                    Plex Update Available
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><strong>{update_version}</strong></td>
-                                <td>The available update version for your Plex Server.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_url}</strong></td>
-                                <td>The download URL for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_release_date}</strong></td>
-                                <td>The release date of the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_channel}</strong></td>
-                                <td>The update channel. <span class="small-muted">(Public or Plex Pass)</span></td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_platform}</strong></td>
-                                <td>The platform of your Plex Server.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_distro}</strong></td>
-                                <td>The distro of your Plex Server.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_distro_build}</strong></td>
-                                <td>The distro build of your Plex Server.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_requirements}</strong></td>
-                                <td>The requirements for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_extra_info}</strong></td>
-                                <td>Any extra info for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_changelog_added}</strong></td>
-                                <td>The added changelog for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{update_changelog_fixed}</strong></td>
-                                <td>The fixed changelog for the available update.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <table class="notification-params">
-                        <thead>
-                            <tr>
-                                <th colspan="2">
-                                    PlexPy Update Available
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><strong>{plexpy_update_version}</strong></td>
-                                <td>The available update version for PlexPy.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{plexpy_update_tar}</strong></td>
-                                <td>The tar download URL for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{plexpy_update_zip}</strong></td>
-                                <td>The zip download URL for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{plexpy_update_commit}</strong></td>
-                                <td>The commit hash for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{plexpy_update_behind}</strong></td>
-                                <td>The number of commits behind for the available update.</td>
-                            </tr>
-                            <tr>
-                                <td><strong>{plexpy_update_changelog}</strong></td>
-                                <td>The changelog for the available update.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    % endfor
                 </div>
             </div>
             <div class="modal-footer"></div>
@@ -2377,11 +1388,17 @@
                 <label>Instructions</label>
                 <p class="help-block">
                     Scan the QR code below with the PlexPy Android app to automatically register it with the server.
+                    Make sure the PlexPy Address below is correct.
                 </p>
                 <label>QR Code</label>
                 <pre id="api_qr_code" style="text-align: center"></pre>
-                <label>Encoded String</label>
-                <pre id="api_qr_string"></pre>
+                <label>PlexPy Address</label>
+                <input type="text" class="form-control" id="api_qr_address">
+                <input type="hidden" class="form-control" id="api_qr_token">
+                <p class="help-block" id="api_qr_localhost" style="display: none;">
+                    Note: <span class="inline-pre">127.0.0.1</span> and <span class="inline-pre">localhost</span> will not work.
+                    Please enter an internal or external IP address, or hostname or domain instead.
+                </p>
                 <p class="help-block" id="api_qr_private" style="display: none;">
                     Note: This is a private IP address. PlexPy will not be reachable outside of your home network.
                     Access PlexPy externally to generate the QR code for remote access.
@@ -3027,21 +2044,36 @@ $(document).ready(function() {
         return deferred;
     }
 
+    function checkQRAddress(url) {
+        var parser = document.createElement('a');
+        parser.href = url;
+        var hostname = parser.hostname;
+        var protocol = parser.protocol;
+
+        if (hostname === '127.0.0.1' || hostname === 'localhost') {
+            $('#api_qr_localhost').toggle(true);
+            $('#api_qr_private').toggle(false);
+        } else {
+            $('#api_qr_localhost').toggle(false);
+            isPrivateIP(hostname).then(function (valid) {
+                $('#api_qr_private').toggle((valid !== 'n/a'));
+            }, function () {
+                $('#api_qr_private').toggle(false);
+            });
+        }
+        $('#api_qr_https').toggle((protocol === 'http:'));
+    }
+
     var verifiedDevice = false;
     $('#generate_qr').click(function () {
         getPlexPyURL().then(function (url) {
-            var parser = document.createElement('a');
-            parser.href = url;
-            isPrivateIP(parser.hostname).then(function (valid) {
-                $('#api_qr_private').toggle((valid !== 'n/a'));
-            });
-            $('#api_qr_https').toggle(!(url.startsWith('https')));
+            checkQRAddress(url)
 
             $.get('generate_api_key', { device: true }).then(function (token) {
-                var encoded_string = url + '|' + token;
-                $('#api_qr_string').html(encoded_string);
+                $('#api_qr_address').val(url);
+                $('#api_qr_token').val(token);
                 $('#api_qr_code').empty().qrcode({
-                    text: encoded_string
+                    text: url + '|' + token
                 });
 
                 (function poll(){
@@ -3069,6 +2101,15 @@ $(document).ready(function() {
                     }, 1000);
                 })();
             });
+        });
+    });
+
+    $('#api_qr_address').change(function () {
+        var url = $(this).val();
+        checkQRAddress(url)
+
+        $('#api_qr_code').empty().qrcode({
+            text: url + '|' + $('#api_qr_token').val()
         });
     });
 

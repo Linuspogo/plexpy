@@ -58,7 +58,7 @@
                 <th align="left" id="last_accessed">Last Accessed</th>
                 <th align="left" id="last_played">Last Played</th>
                 <th align="left" id="total_plays">Total Plays</th>
-                <th align="left" id="total_duration">Total Duration</th>
+                <th align="left" id="total_duration">Total Played Duration</th>
             </tr>
             </thead>
             <tbody>
@@ -97,7 +97,7 @@
 <script src="${http_root}js/dataTables.bootstrap.min.js"></script>
 <script src="${http_root}js/dataTables.bootstrap.pagination.js"></script>
 <script src="${http_root}js/moment-with-locale.js"></script>
-<script src="${http_root}js/tables/libraries.js"></script>
+<script src="${http_root}js/tables/libraries.js${cache_param}"></script>
 <script>
     $(document).ready(function () {
         libraries_list_table_options.ajax = {

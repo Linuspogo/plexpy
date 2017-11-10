@@ -261,6 +261,12 @@ function getPlatformImagePath(platformName) {
         return 'images/platforms/pmp.png';
     } else if (platformName.indexOf("DLNA") > -1) {
         return 'images/platforms/dlna.png';
+    } else if (platformName.indexOf("PlexTogether") > -1) {
+        return 'images/platforms/plextogether.png';
+    } else if (platformName.indexOf("Linux") > -1) {
+        return 'images/platforms/linux.png';
+    } else if (platformName.indexOf("Vizio") > -1) {
+        return 'images/platforms/opera.png';
     } else {
         return 'images/platforms/default.png';
     }
@@ -495,4 +501,28 @@ function humanFileSize(bytes, si) {
         ++u;
     } while (Math.abs(bytes) >= thresh && u < units.length - 1);
     return bytes.toFixed(1) + '&nbsp;' + units[u];
+}
+
+// Force max/min in number inputs
+function forceMinMax(elem) {
+    var min = parseInt(elem.attr('min'));
+    var max = parseInt(elem.attr('max'));
+    var val = parseInt(elem.val());
+    var default_val = parseInt(elem.data('default'));
+    if (isNaN(val)) {
+        elem.val(default_val);
+    }
+    else if (min != undefined && val < min) {
+        elem.val(min);
+    }
+    else if (max != undefined && val > max) {
+        elem.val(max);
+    }
+    else {
+        elem.val(val);
+    }
+}
+
+function capitalizeFirstLetter(string) {
+    return string.charAt(0).toUpperCase() + string.slice(1);
 }

@@ -61,13 +61,15 @@ def serve_template(templatename, **kwargs):
 
     _hplookup = TemplateLookup(directories=[template_dir], default_filters=['unicode', 'h'])
 
+    http_root = plexpy.HTTP_ROOT
     server_name = plexpy.CONFIG.PMS_NAME
+    cache_param = '?' + plexpy.CURRENT_VERSION or common.VERSION_NUMBER
 
     _session = get_session_info()
 
     try:
         template = _hplookup.get_template(templatename)
-        return template.render(http_root=plexpy.HTTP_ROOT, server_name=server_name,
+        return template.render(http_root=http_root, server_name=server_name, cache_param=cache_param,
                                _session=_session, **kwargs)
     except:
         return exceptions.html_error_template().render()
@@ -173,6 +175,9 @@ class WebInterface(object):
         config = {
             "home_sections": plexpy.CONFIG.HOME_SECTIONS,
             "home_stats_length": plexpy.CONFIG.HOME_STATS_LENGTH,
+            "home_stats_type": plexpy.CONFIG.HOME_STATS_TYPE,
+            "home_stats_count": plexpy.CONFIG.HOME_STATS_COUNT,
+            "home_stats_recently_added_count": plexpy.CONFIG.HOME_STATS_RECENTLY_ADDED_COUNT,
             "pms_name": plexpy.CONFIG.PMS_NAME,
             "pms_use_bif": plexpy.CONFIG.PMS_USE_BIF,
             "update_show_changelog": plexpy.CONFIG.UPDATE_SHOW_CHANGELOG
@@ -308,23 +313,31 @@ class WebInterface(object):
 
     @cherrypy.expose
     @requireAuth()
-    def home_stats(self, **kwargs):
-        grouping = plexpy.CONFIG.GROUP_HISTORY_TABLES
-        time_range = plexpy.CONFIG.HOME_STATS_LENGTH
-        stats_type = plexpy.CONFIG.HOME_STATS_TYPE
-        stats_count = plexpy.CONFIG.HOME_STATS_COUNT
-        stats_cards = plexpy.CONFIG.HOME_STATS_CARDS
-        notify_watched_percent = plexpy.CONFIG.NOTIFY_WATCHED_PERCENT
-
+    def home_stats(self, time_range=30, stats_type=0, stats_count=10, **kwargs):
         data_factory = datafactory.DataFactory()
-        stats_data = data_factory.get_home_stats(grouping=grouping,
-                                                 time_range=time_range,
+        stats_data = data_factory.get_home_stats(time_range=time_range,
                                                  stats_type=stats_type,
-                                                 stats_count=stats_count,
-                                                 stats_cards=stats_cards,
-                                                 notify_watched_percent=notify_watched_percent)
+                                                 stats_count=stats_count)
 
         return serve_template(templatename="home_stats.html", title="Stats", data=stats_data)
+
+    @cherrypy.expose
+    @requireAuth(member_of("admin"))
+    def set_home_stats_config(self, time_range=None, stats_type=None, stats_count=None, recently_added_count=None, **kwargs):
+        if time_range:
+            plexpy.CONFIG.__setattr__('HOME_STATS_LENGTH', time_range)
+            plexpy.CONFIG.write()
+        if stats_type:
+            plexpy.CONFIG.__setattr__('HOME_STATS_TYPE', stats_type)
+            plexpy.CONFIG.write()
+        if stats_count:
+            plexpy.CONFIG.__setattr__('HOME_STATS_COUNT', stats_count)
+            plexpy.CONFIG.write()
+        if recently_added_count:
+            plexpy.CONFIG.__setattr__('HOME_STATS_RECENTLY_ADDED_COUNT', recently_added_count)
+            plexpy.CONFIG.write()
+
+        return "Updated home stats config values."
 
     @cherrypy.expose
     @requireAuth()
@@ -339,11 +352,11 @@ class WebInterface(object):
 
     @cherrypy.expose
     @requireAuth()
-    def get_recently_added(self, count='0', **kwargs):
+    def get_recently_added(self, count='0', type='', **kwargs):
 
         try:
             pms_connect = pmsconnect.PmsConnect()
-            result = pms_connect.get_recently_added_details(count=count)
+            result = pms_connect.get_recently_added_details(count=count, type=type)
         except IOError as e:
             return serve_template(templatename="recently_added.html", data=None)
 
@@ -2267,7 +2280,7 @@ class WebInterface(object):
 
     @cherrypy.expose
     @requireAuth(member_of("admin"))
-    def get_log(self, **kwargs):
+    def get_log(self, logfile='', **kwargs):
         json_data = helpers.process_json_kwargs(json_kwargs=kwargs.get('json_data'))
         log_level = kwargs.get('log_level', "")
 
@@ -2281,7 +2294,15 @@ class WebInterface(object):
         filt = []
         filtered = []
         fa = filt.append
-        with open(os.path.join(plexpy.CONFIG.LOG_DIR, logger.FILENAME)) as f:
+
+        if logfile == "plexpy_api":
+            filename = logger.FILENAME_API
+        elif logfile == "plexpy_websocket":
+            filename = logger.FILENAME_WEBSOCKET
+        else:
+            filename = logger.FILENAME
+
+        with open(os.path.join(plexpy.CONFIG.LOG_DIR, filename)) as f:
             for l in f.readlines():
                 try:
                     temp_loglevel_and_time = l.split(' - ', 1)
@@ -2476,17 +2497,23 @@ class WebInterface(object):
     @cherrypy.expose
     @cherrypy.tools.json_out()
     @requireAuth(member_of("admin"))
-    def delete_logs(self, **kwargs):
-        log_file = logger.FILENAME
+    def delete_logs(self, logfile='', **kwargs):
+        if logfile == "plexpy_api":
+            filename = logger.FILENAME_API
+        elif logfile == "plexpy_websocket":
+            filename = logger.FILENAME_WEBSOCKET
+        else:
+            filename = logger.FILENAME
+
         try:
-            open(os.path.join(plexpy.CONFIG.LOG_DIR, log_file), 'w').close()
+            open(os.path.join(plexpy.CONFIG.LOG_DIR, filename), 'w').close()
             result = 'success'
-            msg = 'Cleared the %s file.' % log_file
+            msg = 'Cleared the %s file.' % filename
             logger.info(msg)
         except Exception as e:
             result = 'error'
-            msg = 'Failed to clear the %s file.' % log_file
-            logger.exception(u'Failed to clear the %s file: %s.' % (log_file, e))
+            msg = 'Failed to clear the %s file.' % filename
+            logger.exception(u'Failed to clear the %s file: %s.' % (filename, e))
 
         return {'result': result, 'message': msg}
 
@@ -2512,9 +2539,16 @@ class WebInterface(object):
 
     @cherrypy.expose
     @requireAuth(member_of("admin"))
-    def logFile(self, **kwargs):
+    def logFile(self, logfile='', **kwargs):
+        if logfile == "plexpy_api":
+            filename = logger.FILENAME_API
+        elif logfile == "plexpy_websocket":
+            filename = logger.FILENAME_WEBSOCKET
+        else:
+            filename = logger.FILENAME
+
         try:
-            with open(os.path.join(plexpy.CONFIG.LOG_DIR, logger.FILENAME), 'r') as f:
+            with open(os.path.join(plexpy.CONFIG.LOG_DIR, filename), 'r') as f:
                 return '<pre>%s</pre>' % f.read()
         except IOError as e:
             return "Log file not found."
@@ -2591,9 +2625,6 @@ class WebInterface(object):
             "refresh_libraries_on_startup": checked(plexpy.CONFIG.REFRESH_LIBRARIES_ON_STARTUP),
             "refresh_users_interval": plexpy.CONFIG.REFRESH_USERS_INTERVAL,
             "refresh_users_on_startup": checked(plexpy.CONFIG.REFRESH_USERS_ON_STARTUP),
-            "movie_logging_enable": checked(plexpy.CONFIG.MOVIE_LOGGING_ENABLE),
-            "tv_logging_enable": checked(plexpy.CONFIG.TV_LOGGING_ENABLE),
-            "music_logging_enable": checked(plexpy.CONFIG.MUSIC_LOGGING_ENABLE),
             "logging_ignore_interval": plexpy.CONFIG.LOGGING_IGNORE_INTERVAL,
             "pms_is_remote": checked(plexpy.CONFIG.PMS_IS_REMOTE),
             "notify_consecutive": checked(plexpy.CONFIG.NOTIFY_CONSECUTIVE),
@@ -2603,11 +2634,7 @@ class WebInterface(object):
             "notify_group_recently_added_parent": checked(plexpy.CONFIG.NOTIFY_GROUP_RECENTLY_ADDED_PARENT),
             "notify_concurrent_by_ip": checked(plexpy.CONFIG.NOTIFY_CONCURRENT_BY_IP),
             "notify_concurrent_threshold": plexpy.CONFIG.NOTIFY_CONCURRENT_THRESHOLD,
-            "notify_watched_percent": plexpy.CONFIG.NOTIFY_WATCHED_PERCENT,
             "home_sections": json.dumps(plexpy.CONFIG.HOME_SECTIONS),
-            "home_stats_length": plexpy.CONFIG.HOME_STATS_LENGTH,
-            "home_stats_type": checked(plexpy.CONFIG.HOME_STATS_TYPE),
-            "home_stats_count": plexpy.CONFIG.HOME_STATS_COUNT,
             "home_stats_cards": json.dumps(plexpy.CONFIG.HOME_STATS_CARDS),
             "home_library_cards": json.dumps(plexpy.CONFIG.HOME_LIBRARY_CARDS),
             "buffer_threshold": plexpy.CONFIG.BUFFER_THRESHOLD,
@@ -2620,7 +2647,12 @@ class WebInterface(object):
             "plexpy_auto_update": checked(plexpy.CONFIG.PLEXPY_AUTO_UPDATE),
             "git_branch": plexpy.CONFIG.GIT_BRANCH,
             "git_path": plexpy.CONFIG.GIT_PATH,
-            "git_remote": plexpy.CONFIG.GIT_REMOTE
+            "git_remote": plexpy.CONFIG.GIT_REMOTE,
+            "movie_watched_percent": plexpy.CONFIG.MOVIE_WATCHED_PERCENT,
+            "tv_watched_percent": plexpy.CONFIG.TV_WATCHED_PERCENT,
+            "music_watched_percent": plexpy.CONFIG.MUSIC_WATCHED_PERCENT,
+            "themoviedb_lookup": checked(plexpy.CONFIG.THEMOVIEDB_LOOKUP),
+            "tvmaze_lookup": checked(plexpy.CONFIG.TVMAZE_LOOKUP)
         }
 
         return serve_template(templatename="settings.html", title="Settings", config=config, kwargs=kwargs)
@@ -2636,12 +2668,12 @@ class WebInterface(object):
             "grouping_global_history", "grouping_user_history", "grouping_charts", "group_history_tables",
             "pms_use_bif", "pms_ssl", "pms_is_remote", "home_stats_type", "week_start_monday",
             "refresh_libraries_on_startup", "refresh_users_on_startup",
-            "movie_logging_enable", "tv_logging_enable", "music_logging_enable",
             "notify_consecutive", "notify_upload_posters", "notify_recently_added_upgrade",
             "notify_group_recently_added_grandparent", "notify_group_recently_added_parent",
             "monitor_pms_updates", "monitor_remote_access", "get_file_sizes", "log_blacklist", "http_hash_password",
             "allow_guest_access", "cache_images", "http_basic_auth", "notify_concurrent_by_ip",
-            "history_table_activity", "plexpy_auto_update"
+            "history_table_activity", "plexpy_auto_update",
+            "themoviedb_lookup", "tvmaze_lookup"
         ]
         for checked_config in checked_configs:
             if checked_config not in kwargs:
@@ -2953,7 +2985,19 @@ class WebInterface(object):
     @requireAuth(member_of("admin"))
     def get_notifier_config_modal(self, notifier_id=None, **kwargs):
         result = notifiers.get_notifier_config(notifier_id=notifier_id)
-        return serve_template(templatename="notifier_config.html", notifier=result)
+
+        if not result['custom_conditions']:
+            result['custom_conditions'] = json.dumps([{'parameter': '', 'operator': '', 'value': ''}])
+
+        if not result['custom_conditions_logic']:
+            result['custom_conditions_logic'] = ''
+
+        parameters = [
+                {'name': param['name'], 'type': param['type'], 'value': param['value']}
+                for category in common.NOTIFICATION_PARAMETERS for param in category['parameters']
+            ]
+
+        return serve_template(templatename="notifier_config.html", notifier=result, parameters=json.dumps(parameters))
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
@@ -3037,6 +3081,35 @@ class WebInterface(object):
         return serve_template(templatename="notifier_text_preview.html", text=text, agent=agent_name)
 
     @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @requireAuth(member_of("admin"))
+    @addtoapi()
+    def get_notifier_parameters(self, **kwargs):
+        """ Get the list of available notification parameters.
+
+            ```
+            Required parameters:
+                None
+
+            Optional parameters:
+                None
+
+            Returns:
+                json:
+                    {
+                     }
+            ```
+        """
+        parameters = [{'name': param['name'],
+                       'type': param['type'],
+                       'value': param['value']
+                       }
+                      for category in common.NOTIFICATION_PARAMETERS 
+                      for param in category['parameters']]
+
+        return parameters
+
+    @cherrypy.expose
     @requireAuth(member_of("admin"))
     @addtoapi("notify")
     def send_notification(self, notifier_id=None, subject='PlexPy', body='Test notification', notify_action='', **kwargs):
@@ -3044,28 +3117,9 @@ class WebInterface(object):
 
             ```
             Required parameters:
-                agent_id(str):          The id of the notification agent to use
-                                            9    # Boxcar2
-                                            17   # Browser
-                                            10   # Email
-                                            16   # Facebook
-                                            0    # Growl
-                                            19   # Hipchat
-                                            12   # IFTTT
-                                            18   # Join
-                                            4    # NotifyMyAndroid
-                                            3    # Plex Home Theater
-                                            1    # Prowl
-                                            5    # Pushalot
-                                            6    # Pushbullet
-                                            7    # Pushover
-                                            15   # Scripts
-                                            14   # Slack
-                                            13   # Telegram
-                                            11   # Twitter
-                                            2    # XBMC
-                subject(str):           The subject of the message
-                body(str):              The body of the message
+                notifier_id (int):      The ID number of the notification agent
+                subject (str):          The subject of the message
+                body (str):             The body of the message
 
             Optional parameters:
                 None
@@ -3446,7 +3500,7 @@ class WebInterface(object):
         quote = self.random_arnold_quotes()
         plexpy.SIGNAL = signal
 
-        if plexpy.CONFIG.HTTP_ROOT:
+        if plexpy.CONFIG.HTTP_ROOT.strip('/'):
             new_http_root = '/' + plexpy.CONFIG.HTTP_ROOT.strip('/') + '/'
         else:
             new_http_root = '/'
@@ -3545,6 +3599,47 @@ class WebInterface(object):
             return serve_template(templatename="info_children_list.html", data=None, title="Children List")
 
     @cherrypy.expose
+    @cherrypy.tools.json_out()
+    @requireAuth()
+    @addtoapi('notify_recently_added')
+    def send_manual_on_created(self, notifier_id='', rating_key='', **kwargs):
+        """ Send a recently added notification using PlexPy.
+
+            ```
+            Required parameters:
+                rating_key (int):       The rating key for the media
+
+            Optional parameters:
+                notifier_id (int):      The ID number of the notification agent.
+                                        The notification will send to all enabled notification agents if notifier id is not provided.
+
+            Returns:
+                json
+                    {"result": "success",
+                     "message": "Notification queued."
+                    }
+            ```
+        """
+        if rating_key:
+            pms_connect = pmsconnect.PmsConnect()
+            metadata = pms_connect.get_metadata_details(rating_key=rating_key)
+            data = {'timeline_data': metadata, 'notify_action': 'on_created', 'manual_trigger': True}
+
+            if metadata['media_type'] not in ('movie', 'episode', 'track'):
+                children = pms_connect.get_item_children(rating_key=rating_key)
+                child_keys = [child['rating_key'] for child in children['children_list'] if child['rating_key']]
+                data['child_keys'] = child_keys
+
+            if notifier_id:
+                data['notifier_id'] = notifier_id
+
+            plexpy.NOTIFY_QUEUE.put(data)
+            return {'result': 'success', 'message': 'Notification queued.'}
+
+        else:
+            return {'result': 'error', 'message': 'Notification failed.'}
+
+    @cherrypy.expose
     @requireAuth()
     def pms_image_proxy(self, **kwargs):
         """ See real_pms_image_proxy docs string"""
@@ -3637,15 +3732,55 @@ class WebInterface(object):
     @cherrypy.expose
     @requireAuth(member_of("admin"))
     @addtoapi()
-    def download_log(self, **kwargs):
-        """ Download the PlexPy log file. """
-        log_file = logger.FILENAME
+    def download_config(self, **kwargs):
+        """ Download the PlexPy configuration file. """
+        config_file = config.FILENAME
+
         try:
-            logger.logger.flush()
+            plexpy.CONFIG.write()
         except:
             pass
 
-        return serve_download(os.path.join(plexpy.CONFIG.LOG_DIR, log_file), name=log_file)
+        return serve_download(plexpy.CONFIG_FILE, name=config_file)
+
+    @cherrypy.expose
+    @requireAuth(member_of("admin"))
+    @addtoapi()
+    def download_database(self, **kwargs):
+        """ Download the PlexPy database file. """
+        database_file = database.FILENAME
+
+        try:
+            db = database.MonitorDatabase()
+            db.connection.execute('begin immediate')
+            shutil.copyfile(plexpy.DB_FILE, os.path.join(plexpy.CONFIG.CACHE_DIR, database_file))
+            db.connection.rollback()
+        except:
+            pass
+
+        return serve_download(os.path.join(plexpy.CONFIG.CACHE_DIR, database_file), name=database_file)
+
+    @cherrypy.expose
+    @requireAuth(member_of("admin"))
+    @addtoapi()
+    def download_log(self, logfile='', **kwargs):
+        """ Download the PlexPy log file. """
+        if logfile == "plexpy_api":
+            filename = logger.FILENAME_API
+            log = logger.logger
+        elif logfile == "plexpy_websocket":
+            filename = logger.FILENAME_WEBSOCKET
+            log = logger.logger_api
+        else:
+            filename = logger.FILENAME
+            log = logger.logger_websocket
+
+        try:
+            log.flush()
+        except:
+            pass
+
+        return serve_download(os.path.join(plexpy.CONFIG.LOG_DIR, filename), name=filename)
 
     @cherrypy.expose
     @requireAuth(member_of("admin"))
@@ -3994,7 +4129,7 @@ class WebInterface(object):
     @cherrypy.tools.json_out()
     @requireAuth(member_of("admin"))
     @addtoapi("get_recently_added")
-    def get_recently_added_details(self, start='0', count='0', section_id='', **kwargs):
+    def get_recently_added_details(self, start='0', count='0', type='', section_id='', **kwargs):
         """ Get all items that where recelty added to plex.
 
             ```
@@ -4003,6 +4138,7 @@ class WebInterface(object):
 
             Optional parameters:
                 start (str):        The item number to start at
+                type (str):         The media type: movie, show, artist
                 section_id (str):   The id of the Plex library section
 
             Returns:
@@ -4032,7 +4168,7 @@ class WebInterface(object):
             ```
         """
         pms_connect = pmsconnect.PmsConnect()
-        result = pms_connect.get_recently_added_details(start=start, count=count, section_id=section_id)
+        result = pms_connect.get_recently_added_details(start=start, count=count, type=type, section_id=section_id)
 
         if result:
             return result
@@ -4198,7 +4334,7 @@ class WebInterface(object):
     @cherrypy.tools.json_out()
     @requireAuth()
     @addtoapi()
-    def get_activity(self, **kwargs):
+    def get_activity(self, session_key=None, **kwargs):
         """ Get the current activity on the PMS.
 
             ```
@@ -4211,7 +4347,7 @@ class WebInterface(object):
             Returns:
                 json:
                     {"stream_count": 3,
-                     "session":
+                     "sessions":
                         [{"art": "/library/metadata/1219/art/1462175063",
                           "aspect_ratio": "1.78",
                           "audio_channels": "6",
@@ -4284,6 +4420,24 @@ class WebInterface(object):
                     if not session['ip_address']:
                         ip_address = data_factory.get_session_ip(session['session_key'])
                         session['ip_address'] = ip_address
+
+                if session_key:
+                    return next((s for s in result['sessions'] if s['session_key'] == session_key), {})
+
+
+                counts = {'stream_count_direct_play': 0,
+                        'stream_count_direct_stream': 0,
+                        'stream_count_transcode': 0}
+
+                for s in result['sessions']:
+                    if s['transcode_decision'] == 'transcode':
+                        counts['stream_count_transcode'] += 1
+                    elif s['transcode_decision'] == 'copy':
+                        counts['stream_count_direct_stream'] += 1
+                    else:
+                        counts['stream_count_direct_play'] += 1
+
+                result.update(counts)
 
                 return result
             else:
@@ -4439,7 +4593,7 @@ class WebInterface(object):
     @cherrypy.tools.json_out()
     @requireAuth(member_of("admin"))
     @addtoapi()
-    def get_home_stats(self, grouping=0, time_range='30', stats_type=0, stats_count='5', **kwargs):
+    def get_home_stats(self, grouping=0, time_range='30', stats_type=0, stats_count='10', **kwargs):
         """ Get the homepage watch statistics.
 
             ```
@@ -4513,16 +4667,11 @@ class WebInterface(object):
                      ]
             ```
         """
-        stats_cards = plexpy.CONFIG.HOME_STATS_CARDS
-        notify_watched_percent = plexpy.CONFIG.NOTIFY_WATCHED_PERCENT
-
         data_factory = datafactory.DataFactory()
         result = data_factory.get_home_stats(grouping=grouping,
                                              time_range=time_range,
                                              stats_type=stats_type,
-                                             stats_count=stats_count,
-                                             stats_cards=stats_cards,
-                                             notify_watched_percent=notify_watched_percent)
+                                             stats_count=stats_count)
 
         if result:
             return result
@@ -4558,13 +4707,18 @@ class WebInterface(object):
                       'Come with me if you want to live.',
                       'Who is your daddy and what does he do?',
                       'Oh, cookies! I can\'t wait to toss them.',
-                      'Can you hurry up. My horse is getting tired.',
+                      'Make it quick because my horse is getting tired.',
                       'What killed the dinosaurs? The Ice Age!',
                       'That\'s for sleeping with my wife!',
                       'Remember when I said I\'d kill you last... I lied!',
                       'You want to be a farmer? Here\'s a couple of acres',
                       'Now, this is the plan. Get your ass to Mars.',
-                      'I just had a terrible thought... What if this is a dream?'
+                      'I just had a terrible thought... What if this is a dream?',
+                      'Well, listen to this one: Rubber baby buggy bumpers!',
+                      'Take your toy back to the carpet!',
+                      'My name is John Kimble... And I love my car.',
+                      'I eat Green Berets for breakfast.',
+                      'Put that cookie down! NOW!'
                       ]
 
         return random.choice(quote_list)
@@ -4696,9 +4850,18 @@ class WebInterface(object):
         else:
            scheme = 'http'
 
+        # Have to return some hostname if socket fails even if 127.0.0.1 won't work
+        hostname = '127.0.0.1'
+
         if plexpy.CONFIG.HTTP_HOST == '0.0.0.0':
             import socket
-            hostname = socket.gethostbyname(socket.gethostname())
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                s.connect(('<broadcast>', 0))
+                hostname = s.getsockname()[0]
+            except socket.error:
+                hostname = socket.gethostbyname(socket.gethostname())
         else:
             hostname = plexpy.CONFIG.HTTP_HOST
 
@@ -4707,7 +4870,7 @@ class WebInterface(object):
         else:
             port = ''
 
-        if plexpy.CONFIG.HTTP_ROOT:
+        if plexpy.CONFIG.HTTP_ROOT.strip('/'):
             root = '/' + plexpy.CONFIG.HTTP_ROOT.strip('/')
         else:
             root = ''

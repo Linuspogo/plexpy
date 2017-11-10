@@ -1,5 +1,56 @@
 # Changelog
 
+## v1.4.25 (2017-10-02)
+
+* Fix: Tab instead of spaces preventing startup.
+
+
+## v1.4.24 (2017-10-01)
+
+* Fix: New Plex Web urls. (Thanks @Joshua1337)
+* Fix: Fallback to the product name if the player title is blank.
+* New: Added no forking option to startup arguments. (Thanks @Vashypooh)
+
+
+## v1.4.23 (2017-09-30)
+
+* Fix: Playstation 4 platform name.
+* Fix: PlexWatch and Plexivity import.
+* Fix: Pushbullet authorization header.
+
+
+## v1.4.22 (2017-08-19)
+
+* Fix: Cleaning up of old config backups.
+* Fix: Temporary fix for incorrect source media info.
+
+
+## v1.4.21 (2017-07-01)
+
+* New: Updated donation methods.
+
+
+## v1.4.20 (2017-06-24)
+
+* New: Added platform image for the PlexTogether player.
+* Fix: Corrected math used to calculate human duration. (Thanks @senepa)
+* Fix: Sorting of 4k in media info tables.
+* Fix: Update file sizes when refreshing media info tables.
+* Fix: Support a custom port for Mattermost (Slack) notifications.
+
+
+## v1.4.19 (2017-05-31)
+
+* Fix: Video resolution not showing up for transcoded streams on PMS 1.7.x.
+
+
+## v1.4.18 (2017-04-22)
+
+* New: Added some new Arnold quotes. (Thanks @senepa)
+* Fix: Text wrapping in datatable footers.
+* Fix: API command get_apikey. (Thanks @Hellowlol)
+
+
 ## v1.4.17 (2017-03-04)
 
 * New: Configurable month range for the Plays by month graph. (Thanks @Pbaboe)

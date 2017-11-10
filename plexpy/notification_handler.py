@@ -35,6 +35,7 @@ import helpers
 import notifiers
 import plextv
 import pmsconnect
+import request
 import users
 
 
@@ -47,7 +48,7 @@ def process_queue():
             break
         elif params:
             try:
-                if 'notifier_id' in params:
+                if 'notify' in params:
                     notify(**params)
                 else:
                     add_notifier_each(**params)
@@ -67,13 +68,17 @@ def start_threads(num_threads=1):
         thread.start()
 
 
-def add_notifier_each(notify_action=None, stream_data=None, timeline_data=None, **kwargs):
+def add_notifier_each(notifier_id=None, notify_action=None, stream_data=None, timeline_data=None, manual_trigger=False, **kwargs):
     if not notify_action:
         logger.debug(u"PlexPy NotificationHandler :: Notify called but no action received.")
         return
 
-    # Check if any notification agents have notifications enabled for the action
-    notifiers_enabled = notifiers.get_notifiers(notify_action=notify_action)
+    if notifier_id:
+        # Send to a specific notifier regardless if it is enabled
+        notifiers_enabled = notifiers.get_notifiers(notifier_id=notifier_id)
+    else:
+        # Check if any notification agents have notifications enabled for the action
+        notifiers_enabled = notifiers.get_notifiers(notify_action=notify_action)
 
     # Check on_watched for each notifier
     if notifiers_enabled and notify_action == 'on_watched':
@@ -83,18 +88,19 @@ def add_notifier_each(notify_action=None, stream_data=None, timeline_data=None, 
                 # Already notified on_watched, remove from notifier
                 notifiers_enabled.pop(n)
 
-    if notifiers_enabled:
+    if notifiers_enabled and not manual_trigger:
         # Check if notification conditions are satisfied
         conditions = notify_conditions(notify_action=notify_action,
                                        stream_data=stream_data,
                                        timeline_data=timeline_data)
 
-    if notifiers_enabled and conditions:
+    if notifiers_enabled and (manual_trigger or conditions):
         if stream_data or timeline_data:
             # Build the notification parameters
             parameters = build_media_notify_params(notify_action=notify_action,
                                                    session=stream_data,
                                                    timeline=timeline_data,
+                                                   manual_trigger=manual_trigger,
                                                    **kwargs)
         else:
             # Build the notification parameters
@@ -105,15 +111,20 @@ def add_notifier_each(notify_action=None, stream_data=None, timeline_data=None, 
             logger.error(u"PlexPy NotificationHandler :: Failed to build notification parameters.")
             return
 
-        # Add each notifier to the queue
         for notifier in notifiers_enabled:
-            data = {'notifier_id': notifier['id'],
-                    'notify_action': notify_action,
-                    'stream_data': stream_data,
-                    'timeline_data': timeline_data,
-                    'parameters': parameters}
-            data.update(kwargs)
-            plexpy.NOTIFY_QUEUE.put(data)
+            # Check custom user conditions
+            if manual_trigger or notify_custom_conditions(notifier_id=notifier['id'], parameters=parameters):
+                # Add each notifier to the queue
+                data = {'notify': True,
+                        'notifier_id': notifier['id'],
+                        'notify_action': notify_action,
+                        'stream_data': stream_data,
+                        'timeline_data': timeline_data,
+                        'parameters': parameters}
+                data.update(kwargs)
+                plexpy.NOTIFY_QUEUE.put(data)
+            else:
+                logger.debug(u"PlexPy NotificationHandler :: Custom notification conditions not satisfied, skipping notifier_id %s." % notifier['id'])
 
     # Add on_concurrent and on_newdevice to queue if action is on_play
     if notify_action == 'on_play':
@@ -121,7 +132,7 @@ def add_notifier_each(notify_action=None, stream_data=None, timeline_data=None, 
         plexpy.NOTIFY_QUEUE.put({'stream_data': stream_data, 'notify_action': 'on_newdevice'})
 
 
-def notify_conditions(notifier=None, notify_action=None, stream_data=None, timeline_data=None):
+def notify_conditions(notify_action=None, stream_data=None, timeline_data=None):
     # Activity notifications
     if stream_data:
 
@@ -133,11 +144,11 @@ def notify_conditions(notifier=None, notify_action=None, stream_data=None, timel
         library_details = library_data.get_details(section_id=stream_data['section_id'])
 
         if not user_details['do_notify']:
-            # logger.debug(u"PlexPy NotificationHandler :: Notifications for user '%s' is disabled." % user_details['username'])
+            logger.debug(u"PlexPy NotificationHandler :: Notifications for user '%s' are disabled." % user_details['username'])
             return False
 
         elif not library_details['do_notify'] and notify_action not in ('on_concurrent', 'on_newdevice'):
-            # logger.debug(u"PlexPy NotificationHandler :: Notifications for library '%s' is disabled." % library_details['section_name'])
+            logger.debug(u"PlexPy NotificationHandler :: Notifications for library '%s' are disabled." % library_details['section_name'])
             return False
 
         if notify_action == 'on_concurrent':
@@ -155,7 +166,9 @@ def notify_conditions(notifier=None, notify_action=None, stream_data=None, timel
             progress_percent = helpers.get_percent(stream_data['view_offset'], stream_data['duration'])
             
             if notify_action == 'on_stop':
-                return plexpy.CONFIG.NOTIFY_CONSECUTIVE or progress_percent < plexpy.CONFIG.NOTIFY_WATCHED_PERCENT
+                return (plexpy.CONFIG.NOTIFY_CONSECUTIVE or
+                    (stream_data['media_type'] == 'movie' and progress_percent < plexpy.CONFIG.MOVIE_WATCHED_PERCENT)
+                    (stream_data['media_type'] == 'episode' and progress_percent < plexpy.CONFIG.TV_WATCHED_PERCENT))
             
             elif notify_action == 'on_resume':
                 return plexpy.CONFIG.NOTIFY_CONSECUTIVE or progress_percent < 99
@@ -188,7 +201,118 @@ def notify_conditions(notifier=None, notify_action=None, stream_data=None, timel
         return True
 
 
+def notify_custom_conditions(notifier_id=None, parameters=None):
+    notifier_config = notifiers.get_notifier_config(notifier_id=notifier_id)
+
+    custom_conditions_logic = notifier_config['custom_conditions_logic']
+
+    if custom_conditions_logic:
+        logger.debug(u"PlexPy NotificationHandler :: Checking custom notification conditions for notifier_id %s." % notifier_id)
+
+        custom_conditions = json.loads(notifier_config['custom_conditions'])
+        
+        try:
+            # Parse and validate the custom conditions logic
+            logic_groups = helpers.parse_condition_logic_string(custom_conditions_logic, len(custom_conditions))
+        except ValueError as e:
+            logger.error(u"PlexPy NotificationHandler :: Unable to parse custom condition logic '%s': %s."
+                         % (custom_conditions_logic, e))
+            return False
+
+        evaluated_conditions = [None]  # Set condition {0} to None
+
+        for condition in custom_conditions:
+            parameter = condition['parameter']
+            operator = condition['operator']
+            values = condition['value']
+            parameter_type = condition['type']
+
+            # Set blank conditions to None
+            if not parameter or not operator or not values:
+                evaluated_conditions.append(None)
+                continue
+
+            # Make sure the condition values is in a list
+            if isinstance(values, basestring):
+                values = [values]
+
+            # Cast the condition values to the correct type
+            try:
+                if parameter_type == 'str':
+                    values = [unicode(v).lower() for v in values]
+
+                elif parameter_type == 'int':
+                    values = [int(v) for v in values]
+
+                elif parameter_type == 'float':
+                    values = [float(v) for v in values]
+            
+            except Exception as e:
+                logger.error(u"PlexPy NotificationHandler :: Unable to cast condition '%s' to type '%s'."
+                             % (parameter, parameter_type))
+                return False
+
+            # Cast the parameter value to the correct type
+            try:
+                if parameter_type == 'str':
+                    parameter_value = unicode(parameters[parameter]).lower()
+
+                elif parameter_type == 'int':
+                    parameter_value = int(parameters[parameter])
+
+                elif parameter_type == 'float':
+                    parameter_value = float(parameters[parameter])
+            
+            except Exception as e:
+                logger.error(u"PlexPy NotificationHandler :: Unable to cast parameter '%s' to type '%s'."
+                             % (parameter, parameter_type))
+                return False
+
+            # Check each condition
+            if operator == 'contains':
+                evaluated_conditions.append(any(c in parameter_value for c in values))
+
+            elif operator == 'does not contain':
+                evaluated_conditions.append(any(c not in parameter_value for c in values))
+
+            elif operator == 'is':
+                evaluated_conditions.append(any(parameter_value == c for c in values))
+
+            elif operator == 'is not':
+                evaluated_conditions.append(any(parameter_value != c for c in values))
+
+            elif operator == 'begins with':
+                evaluated_conditions.append(parameter_value.startswith(tuple(values)))
+
+            elif operator == 'ends with':
+                evaluated_conditions.append(parameter_value.endswith(tuple(values)))
+
+            elif operator == 'is greater than':
+                evaluated_conditions.append(any(parameter_value > c for c in values))
+
+            elif operator == 'is less than':
+                evaluated_conditions.append(any(parameter_value < c for c in values))
+
+            else:
+                logger.warn(u"PlexPy NotificationHandler :: Invalid condition operator '%s'." % operator)
+                evaluated_conditions.append(None)
+
+        # Format and evaluate the logic string
+        try:
+            evaluated_logic = helpers.eval_logic_groups_to_bool(logic_groups, evaluated_conditions)
+        except Exception as e:
+            logger.error(u"PlexPy NotificationHandler :: Unable to evaluate custom condition logic: %s." % e)
+            return False
+
+        logger.debug(u"PlexPy NotificationHandler :: Custom condition evaluated to '%s'." % str(evaluated_logic))
+        return evaluated_logic
+
+    return True
+
+
 def notify(notifier_id=None, notify_action=None, stream_data=None, timeline_data=None, parameters=None, **kwargs):
+    logger.debug(u"PlexPy NotificationHandler :: Preparing notifications for notifier_id %s." % notifier_id)
+
     notifier_config = notifiers.get_notifier_config(notifier_id=notifier_id)
 
     if not notifier_config:
@@ -291,7 +415,7 @@ def set_notify_success(notification_id):
     monitor_db.upsert(table_name='notify_log', key_dict=keys, value_dict=values)
 
 
-def build_media_notify_params(notify_action=None, session=None, timeline=None, **kwargs):
+def build_media_notify_params(notify_action=None, session=None, timeline=None, manual_trigger=False, **kwargs):
     # Get time formats
     date_format = plexpy.CONFIG.DATE_FORMAT.replace('Do','')
     time_format = plexpy.CONFIG.TIME_FORMAT.replace('Do','')
@@ -326,19 +450,20 @@ def build_media_notify_params(notify_action=None, session=None, timeline=None, *
 
     ## TODO: Check list of media info items, currently only grabs first item
     media_info = media_part_info = {}
-    if 'media_info' in metadata:
+    if 'media_info' in metadata and len(metadata['media_info']) > 0:
         media_info = metadata['media_info'][0]
-        if 'parts' in media_info:
+        if 'parts' in media_info and len(media_info['parts']) > 0:
             media_part_info = media_info['parts'][0]
 
     stream_video = stream_audio = stream_subtitle = False
-    for stream in media_part_info['streams']:
-        if not stream_video and stream['type'] == '1':
-            media_part_info.update(stream)
-        if not stream_audio and stream['type'] == '2':
-            media_part_info.update(stream)
-        if not stream_subtitle and stream['type'] == '3':
-            media_part_info.update(stream)
+    if 'streams' in media_part_info:
+        for stream in media_part_info['streams']:
+            if not stream_video and stream['type'] == '1':
+                media_part_info.update(stream)
+            if not stream_audio and stream['type'] == '2':
+                media_part_info.update(stream)
+            if not stream_subtitle and stream['type'] == '3':
+                media_part_info.update(stream)
 
     child_metadata = grandchild_metadata = []
     for key in kwargs.pop('child_keys', []):
@@ -375,7 +500,7 @@ def build_media_notify_params(notify_action=None, session=None, timeline=None, *
     remaining_duration = duration - view_offset
 
     # Build Plex URL
-    metadata['plex_url'] = 'https://app.plex.tv/web/app#!/server/{0}/details?key=%2Flibrary%2Fmetadata%2F{1}'.format(
+    metadata['plex_url'] = 'https://app.plex.tv/desktop#!/server/{0}/details?key=%2Flibrary%2Fmetadata%2F{1}'.format(
         plexpy.CONFIG.PMS_IDENTIFIER, str(rating_key))
 
     # Get media IDs from guid and build URLs
@@ -409,6 +534,36 @@ def build_media_notify_params(notify_action=None, session=None, timeline=None, *
         metadata['lastfm_id'] = metadata['guid'].split('lastfm://')[1].rsplit('/', 1)[0]
         metadata['lastfm_url'] = 'https://www.last.fm/music/' + metadata['lastfm_id']
 
+    # Get TheMovieDB info
+    if plexpy.CONFIG.THEMOVIEDB_LOOKUP:
+        if metadata.get('themoviedb_id'):
+            themoveidb_json = get_themoviedb_info(rating_key=rating_key,
+                                                  media_type=metadata['media_type'],
+                                                  themoviedb_id=metadata['themoviedb_id'])
+
+            if themoveidb_json.get('imdb_id'):
+                metadata['imdb_id'] = themoveidb_json['imdb_id']
+                metadata['imdb_url'] = 'https://www.imdb.com/title/' + themoveidb_json['imdb_id']
+
+        elif metadata.get('thetvdb_id') or metadata.get('imdb_id'):
+            themoviedb_info = lookup_themoviedb_by_id(rating_key=rating_key,
+                                                      thetvdb_id=metadata.get('thetvdb_id'),
+                                                      imdb_id=metadata.get('imdb_id'))
+            metadata.update(themoviedb_info)
+
+    # Get TVmaze info (for tv shows only)
+    if plexpy.CONFIG.TVMAZE_LOOKUP:
+        if metadata['media_type'] in ('show', 'season', 'episode') and (metadata.get('thetvdb_id') or metadata.get('imdb_id')):
+            tvmaze_info = lookup_tvmaze_by_id(rating_key=rating_key,
+                                              thetvdb_id=metadata.get('thetvdb_id'),
+                                              imdb_id=metadata.get('imdb_id'))
+            metadata.update(tvmaze_info)
+
+            if tvmaze_info.get('thetvdb_id'):
+                metadata['thetvdb_url'] = 'https://thetvdb.com/?tab=series&id=' + str(tvmaze_info['thetvdb_id'])
+            if tvmaze_info.get('imdb_id'):
+                metadata['imdb_url'] = 'https://www.imdb.com/title/' + tvmaze_info['imdb_id']
+
     if metadata['media_type'] in ('movie', 'show', 'artist'):
         poster_thumb = metadata['thumb']
         poster_key = metadata['rating_key']
@@ -430,7 +585,8 @@ def build_media_notify_params(notify_action=None, session=None, timeline=None, *
         poster_info = get_poster_info(poster_thumb=poster_thumb, poster_key=poster_key, poster_title=poster_title)
         metadata.update(poster_info)
 
-    if plexpy.CONFIG.NOTIFY_GROUP_RECENTLY_ADDED_GRANDPARENT and metadata['media_type'] in ('show', 'artist'):
+    if ((manual_trigger or plexpy.CONFIG.NOTIFY_GROUP_RECENTLY_ADDED_GRANDPARENT)
+        and metadata['media_type'] in ('show', 'artist')):
         show_name = metadata['title']
         episode_name = ''
         artist_name = metadata['title']
@@ -444,7 +600,8 @@ def build_media_notify_params(notify_action=None, session=None, timeline=None, *
         episode_num, episode_num00 = '', ''
         track_num, track_num00 = '', ''
 
-    elif plexpy.CONFIG.NOTIFY_GROUP_RECENTLY_ADDED_PARENT and metadata['media_type'] in ('season', 'album'):
+    elif ((manual_trigger or plexpy.CONFIG.NOTIFY_GROUP_RECENTLY_ADDED_PARENT)
+          and metadata['media_type'] in ('season', 'album')):
         show_name = metadata['parent_title']
         episode_name = ''
         artist_name = metadata['parent_title']
@@ -543,7 +700,12 @@ def build_media_notify_params(notify_action=None, session=None, timeline=None, *
                         'transcode_video_height': session.get('transcode_height',''),
                         'transcode_audio_codec': session.get('transcode_audio_codec',''),
                         'transcode_audio_channels': session.get('transcode_audio_channels',''),
-                        'transcode_hardware': session.get('transcode_hardware',''),
+                        'transcode_hw_requested': session.get('transcode_hw_requested',''),
+                        'transcode_hw_decode': session.get('transcode_hw_decode',''),
+                        'transcode_hw_decode_title': session.get('transcode_hw_decode_title',''),
+                        'transcode_hw_encode': session.get('transcode_hw_encode',''),
+                        'transcode_hw_encode_title': session.get('transcode_hw_encode_title',''),
+                        'transcode_hw_full_pipeline': session.get('transcode_hw_full_pipeline',''),
                         'session_key': session.get('session_key',''),
                         'transcode_key': session.get('transcode_key',''),
                         'session_id': session.get('session_id',''),
@@ -595,6 +757,8 @@ def build_media_notify_params(notify_action=None, session=None, timeline=None, *
                         'thetvdb_url': metadata.get('thetvdb_url',''),
                         'themoviedb_id': metadata.get('themoviedb_id',''),
                         'themoviedb_url': metadata.get('themoviedb_url',''),
+                        'tvmaze_id': metadata.get('tvmaze_id',''),
+                        'tvmaze_url': metadata.get('tvmaze_url',''),
                         'lastfm_url': metadata.get('lastfm_url',''),
                         'trakt_url': metadata.get('trakt_url',''),
                         'container': session.get('container', media_info.get('container','')),
@@ -852,15 +1016,167 @@ def get_poster_info(poster_thumb, poster_key, poster_title):
             # Upload poster_thumb to Imgur and get link
             poster_url = helpers.uploadToImgur(poster_file, poster_title)
 
-            # Create poster info
-            poster_info = {'poster_title': poster_title, 'poster_url': poster_url}
+            if poster_url:
+                # Create poster info
+                poster_info = {'poster_title': poster_title, 'poster_url': poster_url}
 
-            # Save the poster url in the database
-            data_factory.set_poster_url(rating_key=poster_key, poster_title=poster_title, poster_url=poster_url)
+                # Save the poster url in the database
+                data_factory.set_poster_url(rating_key=poster_key, poster_title=poster_title, poster_url=poster_url)
 
             # Delete the cached poster
             os.remove(poster_file)
         except Exception as e:
-            logger.error(u"PlexPy Notifier :: Unable to retrieve poster for rating_key %s: %s." % (str(metadata['rating_key']), e))
+            logger.error(u"PlexPy NotificationHandler :: Unable to retrieve poster for rating_key %s: %s." % (str(metadata['rating_key']), e))
 
     return poster_info
+
+
+def lookup_tvmaze_by_id(rating_key=None, thetvdb_id=None, imdb_id=None):
+    db = database.MonitorDatabase()
+
+    try:
+        query = 'SELECT imdb_id, tvmaze_id, tvmaze_url FROM tvmaze_lookup ' \
+                'WHERE rating_key = ?'
+        tvmaze_info = db.select_single(query, args=[rating_key])
+    except Exception as e:
+        logger.warn(u"PlexPy NotificationHandler :: Unable to execute database query for lookup_tvmaze_by_tvdb_id: %s." % e)
+        return {}
+
+    if not tvmaze_info:
+        tvmaze_info = {}
+
+        if thetvdb_id:
+            logger.debug(u"PlexPy NotificationHandler :: Looking up TVmaze info for thetvdb_id '{}'.".format(thetvdb_id))
+        else:
+            logger.debug(u"PlexPy NotificationHandler :: Looking up TVmaze info for imdb_id '{}'.".format(imdb_id))
+
+        params = {'thetvdb': thetvdb_id} if thetvdb_id else {'imdb': imdb_id}
+        response, err_msg, req_msg = request.request_response2('http://api.tvmaze.com/lookup/shows', params=params)
+
+        if response and not err_msg:
+            tvmaze_json = response.json()
+            thetvdb_id = tvmaze_json.get('externals', {}).get('thetvdb', '')
+            imdb_id = tvmaze_json.get('externals', {}).get('imdb', '')
+            tvmaze_id = tvmaze_json.get('id', '')
+            tvmaze_url = tvmaze_json.get('url', '')
+            
+            keys = {'tvmaze_id': tvmaze_id}
+            tvmaze_info = {'rating_key': rating_key,
+                           'thetvdb_id': thetvdb_id,
+                           'imdb_id': imdb_id,
+                           'tvmaze_url': tvmaze_url,
+                           'tvmaze_json': json.dumps(tvmaze_json)}
+            db.upsert(table_name='tvmaze_lookup', key_dict=keys, value_dict=tvmaze_info)
+
+            tvmaze_info.pop('tvmaze_json')
+
+        else:
+            if err_msg:
+                logger.error(u"PlexPy NotificationHandler :: {}".format(err_msg))
+
+            if req_msg:
+                logger.debug(u"PlexPy NotificationHandler :: Request response: {}".format(req_msg))
+
+    return tvmaze_info
+
+
+def lookup_themoviedb_by_id(rating_key=None, thetvdb_id=None, imdb_id=None):
+    db = database.MonitorDatabase()
+
+    try:
+        query = 'SELECT thetvdb_id, imdb_id, themoviedb_id, themoviedb_url FROM themoviedb_lookup ' \
+                'WHERE rating_key = ?'
+        themoviedb_info = db.select_single(query, args=[rating_key])
+    except Exception as e:
+        logger.warn(u"PlexPy NotificationHandler :: Unable to execute database query for lookup_themoviedb_by_imdb_id: %s." % e)
+        return {}
+
+    if not themoviedb_info:
+        themoviedb_info = {}
+
+        if thetvdb_id:
+            logger.debug(u"PlexPy NotificationHandler :: Looking up The Movie Database info for thetvdb_id '{}'.".format(thetvdb_id))
+        else:
+            logger.debug(u"PlexPy NotificationHandler :: Looking up The Movie Database info for imdb_id '{}'.".format(imdb_id))
+
+        params = {'api_key': plexpy.CONFIG.THEMOVIEDB_APIKEY,
+                  'external_source': 'tvdb_id' if thetvdb_id else 'imdb_id'
+                  }
+        response, err_msg, req_msg = request.request_response2('https://api.themoviedb.org/3/find/{}'.format(thetvdb_id or imdb_id), params=params)
+
+        if response and not err_msg:
+            themoviedb_find_json = response.json()
+            if themoviedb_find_json.get('tv_results'):
+                themoviedb_id = themoviedb_find_json['tv_results'][0]['id']
+            elif themoviedb_find_json.get('movie_results'):
+                themoviedb_id = themoviedb_find_json['movie_results'][0]['id']
+            else:
+                themoviedb_id = ''
+
+            if themoviedb_id:
+                media_type = 'tv' if thetvdb_id else 'movie'
+                themoviedb_url = 'https://www.themoviedb.org/{}/{}'.format(media_type, themoviedb_id)
+                themoviedb_json = get_themoviedb_info(rating_key=rating_key,
+                                                      media_type=media_type,
+                                                      themoviedb_id=themoviedb_id)
+
+                keys = {'themoviedb_id': themoviedb_id}
+                themoviedb_info = {'rating_key': rating_key,
+                                   'thetvdb_id': thetvdb_id,
+                                   'imdb_id': imdb_id or themoviedb_json.get('imdb_id'),
+                                   'themoviedb_url': themoviedb_url,
+                                   'themoviedb_json': json.dumps(themoviedb_json)
+                                   }
+
+                db.upsert(table_name='themoviedb_lookup', key_dict=keys, value_dict=themoviedb_info)
+
+                themoviedb_info.pop('themoviedb_json')
+
+        else:
+            if err_msg:
+                logger.error(u"PlexPy NotificationHandler :: {}".format(err_msg))
+
+            if req_msg:
+                logger.debug(u"PlexPy NotificationHandler :: Request response: {}".format(req_msg))
+
+    return themoviedb_info
+
+
+def get_themoviedb_info(rating_key=None, media_type=None, themoviedb_id=None):
+    if media_type == 'show':
+        media_type = 'tv'
+
+    db = database.MonitorDatabase()
+
+    try:
+        query = 'SELECT themoviedb_json FROM themoviedb_lookup ' \
+                'WHERE rating_key = ?'
+        result = db.select_single(query, args=[rating_key])
+    except Exception as e:
+        logger.warn(u"PlexPy NotificationHandler :: Unable to execute database query for get_themoviedb_info: %s." % e)
+        return {}
+
+    if result:
+        try:
+            return json.loads(result['themoviedb_json'])
+        except:
+            pass
+
+    themoviedb_json = {}
+
+    logger.debug(u"PlexPy NotificationHandler :: Looking up The Movie Database info for themoviedb_id '{}'.".format(themoviedb_id))
+
+    params = {'api_key': plexpy.CONFIG.THEMOVIEDB_APIKEY}
+    response, err_msg, req_msg = request.request_response2('https://api.themoviedb.org/3/{}/{}'.format(media_type, themoviedb_id), params=params)
+
+    if response and not err_msg:
+        themoviedb_json = response.json()
+
+    else:
+        if err_msg:
+            logger.error(u"PlexPy NotificationHandler :: {}".format(err_msg))
+
+        if req_msg:
+            logger.debug(u"PlexPy NotificationHandler :: Request response: {}".format(req_msg))
+
+    return themoviedb_json

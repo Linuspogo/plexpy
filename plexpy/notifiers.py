@@ -16,11 +16,10 @@
 import base64
 import bleach
 import json
-import cherrypy
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import email.utils
-from httplib import HTTPSConnection
+from paho.mqtt.publish import single
 import os
 import re
 import requests
@@ -29,9 +28,7 @@ import smtplib
 import subprocess
 import threading
 import time
-import urllib
 from urllib import urlencode
-import urllib2
 from urlparse import urlparse
 import uuid
 
@@ -39,7 +36,7 @@ try:
     from Cryptodome.Protocol.KDF import PBKDF2
     from Cryptodome.Cipher import AES
     from Cryptodome.Random import get_random_bytes
-    from Cryptodome.Hash import HMAC, SHA1
+    from Cryptodome.Hash import HMAC, SHA256
     CRYPTODOME = True
 except ImportError:
     try:
@@ -87,7 +84,9 @@ AGENT_IDS = {'growl': 0,
              'join': 18,
              'hipchat': 19,
              'discord': 20,
-             'androidapp': 21
+             'androidapp': 21,
+             'groupme': 22,
+             'mqtt': 23
              }
 
 
@@ -116,6 +115,10 @@ def available_notification_agents():
                'name': 'facebook',
                'id': AGENT_IDS['facebook']
                },
+              {'label': 'GroupMe',
+               'name': 'groupme',
+               'id': AGENT_IDS['groupme']
+               },
               {'label': 'Growl',
                'name': 'growl',
                'id': AGENT_IDS['growl']
@@ -135,6 +138,10 @@ def available_notification_agents():
               {'label': 'Notify My Android',
                'name': 'nma',
                'id': AGENT_IDS['nma']
+               },
+              {'label': 'MQTT',
+               'name': 'mqtt',
+               'id': AGENT_IDS['mqtt']
                },
               {'label': 'Plex Home Theater',
                'name': 'plex',
@@ -319,7 +326,7 @@ def get_agent_class(agent_id=None, config=None):
         agent_id = int(agent_id)
 
         if agent_id == 0:
-            return GROWL(config=config)
+            return GROWL(config=config,)
         elif agent_id == 1:
             return PROWL(config=config)
         elif agent_id == 2:
@@ -362,6 +369,10 @@ def get_agent_class(agent_id=None, config=None):
             return DISCORD(config=config)
         elif agent_id == 21:
             return ANDROIDAPP(config=config)
+        elif agent_id == 22:
+            return GROUPME(config=config)
+        elif agent_id == 23:
+            return MQTT(config=config)
         else:
             return Notifier(config=config)
     else:
@@ -385,7 +396,7 @@ def get_notifiers(notifier_id=None, notify_action=None):
     if notifier_id or notify_action:
         where = 'WHERE '
         if notifier_id:
-            where_id += 'notifier_id = ?'
+            where_id += 'id = ?'
             args.append(notifier_id)
         if notify_action and notify_action in notify_actions:
             where_action = '%s = ?' % notify_action
@@ -526,6 +537,8 @@ def set_notifier_config(notifier_id=None, agent_id=None, **kwargs):
               'agent_label': agent['label'],
               'friendly_name': kwargs.get('friendly_name', ''),
               'notifier_config': json.dumps(notifier_config),
+              'custom_conditions': kwargs.get('custom_conditions', ''),
+              'custom_conditions_logic': kwargs.get('custom_conditions_logic', ''),
               }
     values.update(actions)
     values.update(subject_text)
@@ -573,9 +586,36 @@ def blacklist_logger():
 
 
 class PrettyMetadata(object):
-    def __init__(self, parameters):
-    	self.parameters = parameters
-    	self.media_type = parameters['media_type']
+    def __init__(self, parameters=None):
+        self.parameters = parameters or {}
+        self.media_type = self.parameters.get('media_type')
+
+    @staticmethod
+    def get_movie_providers():
+        return {'': '',
+                'plexweb': 'Plex Web',
+                'imdb': 'IMDB',
+                'themoviedb': 'The Movie Database',
+                'trakt': 'Trakt.tv'
+                }
+
+    @staticmethod
+    def get_tv_providers():
+        return {'': '',
+                'plexweb': 'Plex Web',
+                'imdb': 'IMDB',
+                'themoviedb': 'The Movie Database',
+                'thetvdb': 'TheTVDB',
+                'tvmaze': 'TVmaze',
+                'trakt': 'Trakt.tv'
+                }
+
+    @staticmethod
+    def get_music_providers():
+        return {'': '',
+                'plexweb': 'Plex Web',
+                'lastfm': 'Last.fm'
+                }
 
     def get_poster_url(self):
         poster_url = self.parameters['poster_url']
@@ -586,41 +626,34 @@ class PrettyMetadata(object):
                 poster_url = 'https://raw.githubusercontent.com/%s/plexpy/master/data/interfaces/default/images/poster.png' % plexpy.CONFIG.GIT_USER
         return poster_url
 
-    def get_provider(self):
-        provider = ''
-        if self.parameters['thetvdb_url']:
-            provider = 'TheTVDB'
-        elif self.parameters['themoviedb_url']:
-            provider = 'The Movie Database'
-        elif self.parameters['imdb_url']:
-            provider = 'IMDb'
-        elif self.parameters['lastfm_url']:
-            provider = 'Last.fm'
-        return provider
+    def get_provider_name(self, provider):
+        provider_name = ''
+        if provider == 'plexweb':
+            provider_name = 'Plex Web'
+        elif provider == 'imdb':
+            provider_name = 'IMDb'
+        elif provider == 'thetvdb':
+            provider_name = 'TheTVDB'
+        elif provider == 'themoviedb':
+            provider_name = 'The Movie Database'
+        elif provider == 'tvmaze':
+            provider_name = 'TVmaze'
+        elif provider == 'trakt':
+            provider_name = 'Trakt.tv'
+        elif provider == 'lastfm':
+            provider_name = 'Last.fm'
+        return provider_name
 
-    def get_provider_link(self):
-        provider_link = ''
-        if self.parameters['thetvdb_url']:
-            provider_link = self.parameters['thetvdb_url']
-        elif self.parameters['themoviedb_url']:
-            provider_link = self.parameters['themoviedb_url']
-        elif self.parameters['imdb_url']:
-            provider_link = self.parameters['imdb_url']
-        elif self.parameters['lastfm_url']:
-            provider_link = self.parameters['lastfm_url']
+    def get_provider_link(self, provider=None):
+        if provider == 'plexweb':
+            provider_link = self.get_plex_url()
+        else:
+            provider_link = self.parameters.get(provider + '_url', '')
         return provider_link
 
-    def get_caption(self):
-        caption = ''
-        if self.parameters['thetvdb_url']:
-            caption = 'View on TheTVDB'
-        elif self.parameters['themoviedb_url']:
-            caption = 'View on The Movie Database'
-        elif self.parameters['imdb_url']:
-            caption = 'View on IMDB'
-        elif self.parameters['lastfm_url']:
-            caption = 'View on Last.fm'
-        return caption
+    def get_caption(self, provider):
+        provider_name = self.get_provider_name(provider)
+        return 'View on ' + provider_name
 
     def get_title(self, divider='-'):
         if self.media_type == 'movie':
@@ -655,6 +688,7 @@ class PrettyMetadata(object):
 
 
 class Notifier(object):
+    NAME = ''
     _DEFAULT_CONFIG = {}
 
     def __init__(self, config=None):
@@ -680,6 +714,28 @@ class Notifier(object):
     def notify(self, subject='', body='', action='', **kwargs):
         pass
 
+    def make_request(self, url, method='POST', **kwargs):
+        response, err_msg, req_msg = request.request_response2(url, method, **kwargs)
+
+        if response and not err_msg:
+            logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
+            return True
+
+        else:
+            verify_msg = ""
+            if response is not None and response.status_code >= 400 and response.status_code < 500:
+                verify_msg = " Verify you notification agent settings are correct."
+
+            logger.error(u"PlexPy Notifiers :: {name} notification failed.{}".format(verify_msg, name=self.NAME))
+
+            if err_msg:
+                logger.error(u"PlexPy Notifiers :: {}".format(err_msg))
+
+            if req_msg:
+                logger.debug(u"PlexPy Notifiers :: Request response: {}".format(req_msg))
+
+            return False
+
     def return_config_options(self):
         config_options = []
         return config_options
@@ -689,11 +745,12 @@ class ANDROIDAPP(Notifier):
     """
     PlexPy Android app notifications
     """
+    NAME = 'PlexPy Android App'
     _DEFAULT_CONFIG = {'device_id': '',
                        'priority': 3
                        }
 
-    ONESIGNAL_APP_ID = '3b4b666a-d557-4b92-acdf-e2c8c4b95357'
+    _ONESIGNAL_APP_ID = '3b4b666a-d557-4b92-acdf-e2c8c4b95357'
 
     def notify(self, subject='', body='', action='', notification_id=None, **kwargs):
         if not subject or not body:
@@ -728,7 +785,7 @@ class ANDROIDAPP(Notifier):
             key_length = 32  # AES256
             iterations = 1000
             key = PBKDF2(passphrase, salt, dkLen=key_length, count=iterations,
-                         prf=lambda p, s: HMAC.new(p, s, SHA1).digest())
+                         prf=lambda p, s: HMAC.new(p, s, SHA256).digest())
 
             #logger.debug("Encryption key (base64): {}".format(base64.b64encode(key)))
 
@@ -743,7 +800,7 @@ class ANDROIDAPP(Notifier):
             #logger.debug("Nonce (base64): {}".format(base64.b64encode(nonce)))
             #logger.debug("Salt (base64): {}".format(base64.b64encode(salt)))
 
-            payload = {'app_id': self.ONESIGNAL_APP_ID,
+            payload = {'app_id': self._ONESIGNAL_APP_ID,
                        'include_player_ids': [self.config['device_id']],
                        'contents': {'en': 'PlexPy Notification'},
                        'data': {'encrypted': True,
@@ -756,7 +813,7 @@ class ANDROIDAPP(Notifier):
                         "Android app notifications will be sent unecrypted. "
                         "Install the library to encrypt the notifications.")
 
-            payload = {'app_id': self.ONESIGNAL_APP_ID,
+            payload = {'app_id': self._ONESIGNAL_APP_ID,
                        'include_player_ids': [self.config['device_id']],
                        'contents': {'en': 'PlexPy Notification'},
                        'data': {'encrypted': False,
@@ -767,20 +824,7 @@ class ANDROIDAPP(Notifier):
 
         headers = {'Content-Type': 'application/json'}
 
-        r = requests.post("https://onesignal.com/api/v1/notifications", headers=headers, json=payload)
-        request_status = r.status_code
-
-        #logger.debug("OneSignal response: {}".format(r.content))
-
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Android app notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Android app notification failed: [%s] %s" % (request_status, r.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Android app notification failed.")
-            return False
+        return self.make_request("https://onesignal.com/api/v1/notifications", headers=headers, json=payload)
 
     def get_devices(self):
         db = database.MonitorDatabase()
@@ -866,6 +910,7 @@ class BOXCAR(Notifier):
     """
     Boxcar notifications
     """
+    NAME = 'Boxcar'
     _DEFAULT_CONFIG = {'token': '',
                        'sound': ''
                        }
@@ -874,23 +919,13 @@ class BOXCAR(Notifier):
         if not subject or not body:
             return
 
-        try:
-            data = urllib.urlencode({
-                'user_credentials': self.config['token'],
+        data = {'user_credentials': self.config['token'],
                 'notification[title]': subject.encode('utf-8'),
                 'notification[long_message]': body.encode('utf-8'),
                 'notification[sound]': self.config['sound']
-                })
+                }
 
-            req = urllib2.Request('https://new.boxcar.io/api/notifications')
-            handle = urllib2.urlopen(req, data)
-            handle.close()
-            logger.info(u"PlexPy Notifiers :: Boxcar2 notification sent.")
-            return True
-
-        except urllib2.URLError as e:
-            logger.warn(u"PlexPy Notifiers :: Boxcar2 notification failed: %s" % e)
-            return False
+        return self.make_request('https://new.boxcar.io/api/notifications', params=data)
 
     def get_sounds(self):
         sounds = {'': '',
@@ -949,6 +984,7 @@ class BROWSER(Notifier):
     """
     Browser notifications
     """
+    NAME = 'Browser'
     _DEFAULT_CONFIG = {'enabled': 0,
                        'auto_hide_delay': 5
                        }
@@ -957,7 +993,7 @@ class BROWSER(Notifier):
         if not subject or not body:
             return
 
-        logger.info(u"PlexPy Notifiers :: Browser notification sent.")
+        logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
         return True
 
     def get_notifications(self):
@@ -1007,6 +1043,7 @@ class DISCORD(Notifier):
     """
     Discord Notifications
     """
+    NAME = 'Discord'
     _DEFAULT_CONFIG = {'hook': '',
                        'username': '',
                        'avatar_url': '',
@@ -1016,7 +1053,10 @@ class DISCORD(Notifier):
                        'incl_card': 0,
                        'incl_description': 1,
                        'incl_thumbnail': 0,
-                       'incl_pmslink': 0
+                       'incl_pmslink': 0,
+                       'movie_provider': '',
+                       'tv_provider': '',
+                       'music_provider': ''
                        }
 
     def notify(self, subject='', body='', action='', **kwargs):
@@ -1039,13 +1079,22 @@ class DISCORD(Notifier):
         if self.config['incl_card'] and kwargs.get('parameters', {}).get('media_type'):
             # Grab formatted metadata
             pretty_metadata = PrettyMetadata(kwargs['parameters'])
-            media_type = pretty_metadata.media_type
+
+            if pretty_metadata.media_type == 'movie':
+                provider = self.config['movie_provider']
+            elif pretty_metadata.media_type in ('show', 'season', 'episode'):
+                provider = self.config['tv_provider']
+            elif pretty_metadata.media_type in ('artist', 'album', 'track'):
+                provider = self.config['music_provider']
+            else:
+                provider = None
+
             poster_url = pretty_metadata.get_poster_url()
-            plex_url = pretty_metadata.get_plex_url()
-            provider = pretty_metadata.get_provider()
-            provider_link = pretty_metadata.get_provider_link()
+            provider_name = pretty_metadata.get_provider_name(provider)
+            provider_link = pretty_metadata.get_provider_link(provider)
             title = pretty_metadata.get_title('\xc2\xb7'.decode('utf8'))
             description = pretty_metadata.get_description()
+            plex_url = pretty_metadata.get_plex_url()
 
             # Build Discord post attachment
             attachment = {'title': title
@@ -1063,14 +1112,14 @@ class DISCORD(Notifier):
             else:
                 attachment['image'] = {'url': poster_url}
 
-            if self.config['incl_description'] or media_type in ('artist', 'album', 'track'):
+            if self.config['incl_description'] or pretty_metadata.media_type in ('artist', 'album', 'track'):
                 attachment['description'] = description
 
             fields = []
             if provider_link:
                 attachment['url'] = provider_link
                 fields.append({'name': 'View Details',
-                               'value': '[%s](%s)' % (provider, provider_link.encode('utf-8')),
+                               'value': '[%s](%s)' % (provider_name, provider_link.encode('utf-8')),
                                'inline': True})
             if self.config['incl_pmslink']:
                 fields.append({'name': 'View Details',
@@ -1081,30 +1130,10 @@ class DISCORD(Notifier):
 
             data['embeds'] = [attachment]
 
-        host = urlparse(self.config['hook']).hostname
-        path = urlparse(self.config['hook']).path
+        headers = {'Content-type': 'application/json'}
+        params = {'wait': True}
 
-        query_params = {'wait': True}
-        query_string = urllib.urlencode(query_params)
-
-        http_handler = HTTPSConnection(host)
-        http_handler.request("POST",
-                             path + '?' + query_string,
-                             headers={'Content-type': "application/json"},
-                             body=json.dumps(data))
-
-        response = http_handler.getresponse()
-        request_status = response.status
-
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Discord notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Discord notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Discord notification failed.")
-            return False
+        return self.make_request(self.config['hook'], params=params, headers=headers, json=data)
 
     def return_config_options(self):
         config_option = [{'label': 'Discord Webhook URL',
@@ -1166,6 +1195,27 @@ class DISCORD(Notifier):
                           'name': 'discord_incl_thumbnail',
                           'description': 'Use a thumbnail instead of a full sized poster on the info card.',
                           'input_type': 'checkbox'
+                          },
+                         {'label': 'Movie Link Source',
+                          'value': self.config['movie_provider'],
+                          'name': 'discord_movie_provider',
+                          'description': 'Select the source for movie links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_movie_providers()
+                          },
+                         {'label': 'TV Show Link Source',
+                          'value': self.config['tv_provider'],
+                          'name': 'discord_tv_provider',
+                          'description': 'Select the source for tv show links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_tv_providers()
+                          },
+                         {'label': 'Music Link Source',
+                          'value': self.config['music_provider'],
+                          'name': 'discord_music_provider',
+                          'description': 'Select the source for music links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_music_providers()
                           }
                          ]
 
@@ -1176,6 +1226,7 @@ class EMAIL(Notifier):
     """
     Email notifications
     """
+    NAME = 'Email'
     _DEFAULT_CONFIG = {'from_name': '',
                        'from': '',
                        'to': '',
@@ -1225,11 +1276,11 @@ class EMAIL(Notifier):
             mailserver.sendmail(self.config['from'], recipients, msg.as_string())
             mailserver.quit()
 
-            logger.info(u"PlexPy Notifiers :: Email notification sent.")
+            logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
             return True
 
         except Exception as e:
-            logger.warn(u"PlexPy Notifiers :: Email notification failed: %s" % e)
+            logger.error(u"PlexPy Notifiers :: {name} notification failed: {e}".format(name=self.NAME, e=e))
             return False
 
     def return_config_options(self):
@@ -1309,6 +1360,7 @@ class FACEBOOK(Notifier):
     """
     Facebook notifications
     """
+    NAME = 'Facebook'
     _DEFAULT_CONFIG = {'redirect_uri': '',
                        'access_token': '',
                        'app_id': '',
@@ -1316,8 +1368,9 @@ class FACEBOOK(Notifier):
                        'group_id': '',
                        'incl_subject': 1,
                        'incl_card': 0,
-                       'incl_description': 1,
-                       'incl_pmslink': 0
+                       'movie_provider': '',
+                       'tv_provider': '',
+                       'music_provider': ''
                        }
 
     def _get_authorization(self, app_id='', app_secret='', redirect_uri=''):
@@ -1333,7 +1386,7 @@ class FACEBOOK(Notifier):
                                  perms=['user_managed_groups','publish_actions'])
 
     def _get_credentials(self, code=''):
-        logger.info(u"PlexPy Notifiers :: Requesting access token from Facebook")
+        logger.info(u"PlexPy Notifiers :: Requesting access token from {name}.".format(name=self.NAME))
 
         app_id = plexpy.CONFIG.FACEBOOK_APP_ID
         app_secret = plexpy.CONFIG.FACEBOOK_APP_SECRET
@@ -1355,7 +1408,7 @@ class FACEBOOK(Notifier):
 
             plexpy.CONFIG.FACEBOOK_TOKEN = response['access_token']
         except Exception as e:
-            logger.error(u"PlexPy Notifiers :: Error requesting Facebook access token: %s" % e)
+            logger.error(u"PlexPy Notifiers :: Error requesting {name} access token: {e}".format(name=self.NAME, e=e))
             plexpy.CONFIG.FACEBOOK_TOKEN = ''
             
         # Clear out temporary config values
@@ -1365,61 +1418,49 @@ class FACEBOOK(Notifier):
 
         return plexpy.CONFIG.FACEBOOK_TOKEN
 
-    def _post_facebook(self, message=None, attachment=None):
+    def _post_facebook(self, **data):
         if self.config['group_id']:
             api = facebook.GraphAPI(access_token=self.config['access_token'], version='2.5')
 
             try:
-                api.put_wall_post(profile_id=self.config['group_id'], message=message, attachment=attachment)
-                logger.info(u"PlexPy Notifiers :: Facebook notification sent.")
+                api.put_object(parent_object=self.config['group_id'], connection_name='feed', **data)
+                logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
                 return True
             except Exception as e:
-                logger.warn(u"PlexPy Notifiers :: Error sending Facebook post: %s" % e)
+                logger.error(u"PlexPy Notifiers :: Error sending {name} post: {e}".format(name=self.NAME, e=e))
                 return False
 
         else:
-            logger.warn(u"PlexPy Notifiers :: Error sending Facebook post: No Facebook Group ID provided.")
+            logger.error(u"PlexPy Notifiers :: Error sending {name} post: No {name} Group ID provided.".format(name=self.NAME))
             return False
 
     def notify(self, subject='', body='', action='', **kwargs):
         if not subject or not body:
             return
 
-        attachment = {}
+        if self.config['incl_subject']:
+            text = subject.encode('utf-8') + '\r\n' + body.encode("utf-8")
+        else:
+            text = body.encode("utf-8")
+
+        data = {'message': text}
 
         if self.config['incl_card'] and kwargs.get('parameters', {}).get('media_type'):
             # Grab formatted metadata
             pretty_metadata = PrettyMetadata(kwargs['parameters'])
-            media_type = pretty_metadata.media_type
-            poster_url = pretty_metadata.get_poster_url()
-            plex_url = pretty_metadata.get_plex_url()
-            provider_link = pretty_metadata.get_provider_link()
-            caption = pretty_metadata.get_caption()
-            title = pretty_metadata.get_title('\xc2\xb7'.decode('utf8'))
-            description = pretty_metadata.get_description()
 
-            # Build Facebook post attachment
-            if self.config['incl_pmslink']:
-                attachment['link'] = plex_url
-                attachment['caption'] = 'View on Plex Web'
-            elif provider_link:
-                attachment['link'] = provider_link
-                attachment['caption'] = caption
+            if pretty_metadata.media_type == 'movie':
+                provider = self.config['movie_provider']
+            elif pretty_metadata.media_type in ('show', 'season', 'episode'):
+                provider = self.config['tv_provider']
+            elif pretty_metadata.media_type in ('artist', 'album', 'track'):
+                provider = self.config['music_provider']
             else:
-                attachment['link'] = poster_url
+                provider = None
+            
+            data['link'] = pretty_metadata.get_provider_link(provider)
 
-            attachment['picture'] = poster_url
-            attachment['name'] = title
-
-            if self.config['incl_description'] or media_type in ('artist', 'album', 'track'):
-                attachment['description'] = description
-            else:
-                attachment['description'] = ' '
-
-        if self.config['incl_subject']:
-            return self._post_facebook(subject + '\r\n' + body, attachment=attachment)
-        else:
-            return self._post_facebook(body, attachment=attachment)
+        return self._post_facebook(**data)
 
     def return_config_options(self):
         config_option = [{'label': 'Instructions',
@@ -1485,17 +1526,101 @@ class FACEBOOK(Notifier):
                           'description': 'Include an info card with a poster and metadata with the notifications.',
                           'input_type': 'checkbox'
                           },
-                         {'label': 'Include Plot Summaries',
-                          'value': self.config['incl_description'],
-                          'name': 'facebook_incl_description',
-                          'description': 'Include a plot summary for movies and TV shows on the info card.',
+                         {'label': 'Movie Link Source',
+                          'value': self.config['movie_provider'],
+                          'name': 'facebook_movie_provider',
+                          'description': 'Select the source for movie links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_movie_providers()
+                          },
+                         {'label': 'TV Show Link Source',
+                          'value': self.config['tv_provider'],
+                          'name': 'facebook_tv_provider',
+                          'description': 'Select the source for tv show links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_tv_providers()
+                          },
+                         {'label': 'Music Link Source',
+                          'value': self.config['music_provider'],
+                          'name': 'facebook_music_provider',
+                          'description': 'Select the source for music links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_music_providers()
+                          }
+                         ]
+
+        return config_option
+
+
+class GROUPME(Notifier):
+    """
+    GroupMe notifications
+    """
+    NAME = 'GroupMe'
+    _DEFAULT_CONFIG = {'access_token': '',
+                       'bot_id': '',
+                       'incl_subject': 1,
+                       'incl_poster': 0
+                       }
+
+    def notify(self, subject='', body='', action='', **kwargs):
+        if not subject or not body:
+            return
+
+        data = {'bot_id': self.config['bot_id']}
+
+        if self.config['incl_subject']:
+            data['text'] = subject.encode('utf-8') + '\r\n' + body.encode('utf-8')
+        else:
+            data['text'] = body.encode('utf-8')
+
+        if self.config['incl_poster'] and kwargs.get('parameters'):
+            parameters = kwargs['parameters']
+            poster_url = parameters.get('poster_url','')
+
+            if poster_url:
+                headers = {'X-Access-Token': self.config['access_token'],
+                           'Content-Type': 'image/jpeg'}
+                poster_request = requests.get(poster_url)
+                poster_content = poster_request.content
+
+                r = requests.post('https://image.groupme.com/pictures', headers=headers, data=poster_content)
+
+                if r.status_code == 200:
+                    logger.info(u"PlexPy Notifiers :: {name} poster sent.".format(name=self.NAME))
+                    r_content = r.json()
+                    data['attachments'] = [{'type': 'image',
+                                            'url': r_content['payload']['picture_url']}]
+                else:
+                    logger.error(u"PlexPy Notifiers :: {name} poster failed: [{r.status_code}] {r.reason}".format(name=self.NAME, r=r))
+                    logger.debug(u"PlexPy Notifiers :: Request response: {}".format(request.server_message(r, True)))
+                    return False
+
+        return self.make_request('https://api.groupme.com/v3/bots/post', json=data)
+
+    def return_config_options(self):
+        config_option = [{'label': 'GroupMe Access Token',
+                          'value': self.config['access_token'],
+                          'name': 'groupme_access_token',
+                          'description': 'Your GroupMe access token.',
+                          'input_type': 'text'
+                          },
+                         {'label': 'GroupMe Bot ID',
+                          'value': self.config['bot_id'],
+                          'name': 'groupme_bot_id',
+                          'description': 'Your GroupMe bot ID.',
+                          'input_type': 'text'
+                          },
+                         {'label': 'Include Subject Line',
+                          'value': self.config['incl_subject'],
+                          'name': 'groupme_incl_subject',
+                          'description': 'Include the subject line with the notifications.',
                           'input_type': 'checkbox'
                           },
-                         {'label': 'Include Link to Plex Web',
-                          'value': self.config['incl_pmslink'],
-                          'name': 'facebook_incl_pmslink',
-                          'description': 'Include a link to the media in Plex Web on the info card.<br>'
-                                         'If disabled, the link will go to IMDB, TVDB, TMDb, or Last.fm instead, if available.',
+                         {'label': 'Include Poster Image',
+                          'value': self.config['incl_poster'],
+                          'name': 'groupme_incl_poster',
+                          'description': 'Include a poster with the notifications.',
                           'input_type': 'checkbox'
                           }
                          ]
@@ -1507,6 +1632,7 @@ class GROWL(Notifier):
     """
     Growl notifications, for OS X.
     """
+    NAME = 'Growl'
     _DEFAULT_CONFIG = {'host': '',
                        'password': ''
                        }
@@ -1543,10 +1669,10 @@ class GROWL(Notifier):
         try:
             growl.register()
         except gntp.notifier.errors.NetworkError:
-            logger.warn(u"PlexPy Notifiers :: Growl notification failed: network error")
+            logger.error(u"PlexPy Notifiers :: {name} notification failed: network error".format(name=self.NAME))
             return False
         except gntp.notifier.errors.AuthError:
-            logger.warn(u"PlexPy Notifiers :: Growl notification failed: authentication error")
+            logger.error(u"PlexPy Notifiers :: {name} notification failed: authentication error".format(name=self.NAME))
             return False
 
         # Fix message
@@ -1566,10 +1692,10 @@ class GROWL(Notifier):
                 description=body,
                 icon=image
             )
-            logger.info(u"PlexPy Notifiers :: Growl notification sent.")
+            logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
             return True
         except gntp.notifier.errors.NetworkError:
-            logger.warn(u"PlexPy Notifiers :: Growl notification failed: network error")
+            logger.error(u"PlexPy Notifiers :: {name} notification failed: network error".format(name=self.NAME))
             return False
 
     def return_config_options(self):
@@ -1594,13 +1720,17 @@ class HIPCHAT(Notifier):
     """
     Hipchat notifications
     """
+    NAME = 'Hipchat'
     _DEFAULT_CONFIG = {'api_url': '',
                        'color': '',
                        'emoticon': '',
                        'incl_subject': 1,
                        'incl_card': 0,
                        'incl_description': 1,
-                       'incl_pmslink': 0
+                       'incl_pmslink': 0,
+                       'movie_provider': '',
+                       'tv_provider': '',
+                       'music_provider': ''
                        }
 
     def notify(self, subject='', body='', action='', **kwargs):
@@ -1620,10 +1750,19 @@ class HIPCHAT(Notifier):
         if self.config['incl_card'] and kwargs.get('parameters', {}).get('media_type'):
             # Grab formatted metadata
             pretty_metadata = PrettyMetadata(kwargs['parameters'])
-            media_type = pretty_metadata.media_type
+
+            if pretty_metadata.media_type == 'movie':
+                provider = self.config['movie_provider']
+            elif pretty_metadata.media_type in ('show', 'season', 'episode'):
+                provider = self.config['tv_provider']
+            elif pretty_metadata.media_type in ('artist', 'album', 'track'):
+                provider = self.config['music_provider']
+            else:
+                provider = None
+
             poster_url = pretty_metadata.get_poster_url()
-            provider = pretty_metadata.get_provider()
-            provider_link = pretty_metadata.get_provider_link()
+            provider_name = pretty_metadata.get_provider_name(provider)
+            provider_link = pretty_metadata.get_provider_link(provider)
             title = pretty_metadata.get_title()
             description = pretty_metadata.get_description()
             plex_url = pretty_metadata.get_plex_url()
@@ -1637,7 +1776,7 @@ class HIPCHAT(Notifier):
                           'thumbnail': {'url': poster_url}
                           }
 
-            if self.config['incl_description'] or media_type in ('artist', 'album', 'track'):
+            if self.config['incl_description'] or pretty_metadata.media_type in ('artist', 'album', 'track'):
                 attachment['description'] = {'format': 'text',
                                              'value': description}
 
@@ -1645,7 +1784,7 @@ class HIPCHAT(Notifier):
             if provider_link:
                 attachment['url'] = provider_link
                 attributes.append({'label': 'View Details',
-                                   'value': {'label': provider,
+                                   'value': {'label': provider_name,
                                              'url': provider_link}})
             if self.config['incl_pmslink']:
                 attributes.append({'label': 'View Details',
@@ -1663,26 +1802,9 @@ class HIPCHAT(Notifier):
             data['message'] = text
             data['message_format'] = 'text'
 
-        hiphost = urlparse(self.config['api_url']).hostname
-        hipfullq = urlparse(self.config['api_url']).path + '?' + urlparse(self.config['api_url']).query
+        headers = {'Content-type': 'application/json'}
 
-        http_handler = HTTPSConnection(hiphost)
-        http_handler.request("POST",
-                             hipfullq,
-                             headers={'Content-type': "application/json"},
-                             body=json.dumps(data))
-        response = http_handler.getresponse()
-        request_status = response.status
-
-        if request_status == 200 or request_status == 204:
-            logger.info(u"PlexPy Notifiers :: Hipchat notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Hipchat notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Hipchat notification failed.")
-            return False
+        return self.make_request(self.config['api_url'], json=data)
 
     def return_config_options(self):
         config_option = [{'label': 'Hipchat Custom Integrations Full URL',
@@ -1738,6 +1860,27 @@ class HIPCHAT(Notifier):
                           'name': 'hipchat_incl_pmslink',
                           'description': 'Include a second link to the media in Plex Web on the info card.',
                           'input_type': 'checkbox'
+                          },
+                         {'label': 'Movie Link Source',
+                          'value': self.config['movie_provider'],
+                          'name': 'hipchat_movie_provider',
+                          'description': 'Select the source for movie links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_movie_providers()
+                          },
+                         {'label': 'TV Show Link Source',
+                          'value': self.config['tv_provider'],
+                          'name': 'hipchat_tv_provider',
+                          'description': 'Select the source for tv show links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_tv_providers()
+                          },
+                         {'label': 'Music Link Source',
+                          'value': self.config['music_provider'],
+                          'name': 'hipchat_music_provider',
+                          'description': 'Select the source for music links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_music_providers()
                           }
                          ]
 
@@ -1748,6 +1891,7 @@ class IFTTT(Notifier):
     """
     IFTTT notifications
     """
+    NAME = 'IFTTT'
     _DEFAULT_CONFIG = {'key': '',
                        'event': 'plexpy'
                        }
@@ -1761,23 +1905,10 @@ class IFTTT(Notifier):
         data = {'value1': subject.encode("utf-8"),
                 'value2': body.encode("utf-8")}
 
-        http_handler = HTTPSConnection("maker.ifttt.com")
-        http_handler.request("POST",
-                             "/trigger/%s/with/key/%s" % (event, self.config['key']),
-                             headers={'Content-type': "application/json"},
-                             body=json.dumps(data))
-        response = http_handler.getresponse()
-        request_status = response.status
+        headers = {'Content-type': 'application/json'}
 
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Ifttt notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Ifttt notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Ifttt notification failed.")
-            return False
+        return self.make_request('https://maker.ifttt.com/trigger/{}/with/key/{}'.format(event, self.config['key']),
+                                 headers=headers, json=data)
 
     def return_config_options(self):
         config_option = [{'label': 'Ifttt Maker Channel Key',
@@ -1806,6 +1937,7 @@ class JOIN(Notifier):
     """
     Join notifications
     """
+    NAME = 'Join'
     _DEFAULT_CONFIG = {'apikey': '',
                        'device_id': '',
                        'incl_subject': 1
@@ -1824,51 +1956,42 @@ class JOIN(Notifier):
         if self.config['incl_subject']:
             data['title'] = subject.encode("utf-8")
 
-        response = requests.post('https://joinjoaomgcd.appspot.com/_ah/api/messaging/v1/sendPush',
-                                 params=data)
-        request_status = response.status_code
+        r = requests.post('https://joinjoaomgcd.appspot.com/_ah/api/messaging/v1/sendPush', params=data)
 
-        if request_status == 200:
-            data = json.loads(response.text)
-            if data.get('success'):
-                logger.info(u"PlexPy Notifiers :: Join notification sent.")
+        if r.status_code == 200:
+            response_data = r.json()
+            if response_data.get('success'):
+                logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
                 return True
             else:
-                error_msg = data.get('errorMessage')
-                logger.info(u"PlexPy Notifiers :: Join notification failed: %s" % error_msg)
+                error_msg = response_data.get('errorMessage')
+                logger.error(u"PlexPy Notifiers :: {name} notification failed: {msg}".format(name=self.NAME, msg=error_msg))
                 return False
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Join notification failed: [%s] %s" % (request_status, response.reason))
-            return False
         else:
-            logger.warn(u"PlexPy Notifiers :: Join notification failed.")
+            logger.error(u"PlexPy Notifiers :: {name} notification failed: [{r.status_code}] {r.reason}".format(name=self.NAME, r=r))
+            logger.debug(u"PlexPy Notifiers :: Request response: {}".format(request.server_message(r, True)))
             return False
 
     def get_devices(self):
         if self.config['apikey']:
-            http_handler = HTTPSConnection("joinjoaomgcd.appspot.com")
-            http_handler.request("GET",
-                                 "/_ah/api/registration/v1/listDevices?%s" % urlencode({'apikey': self.config['apikey']}))
+            params = {'apikey': self.config['apikey']}
 
-            response = http_handler.getresponse()
-            request_status = response.status
+            r = requests.get('https://joinjoaomgcd.appspot.com/_ah/api/registration/v1/listDevices', params=params)
 
-            if request_status == 200:
-                data = json.loads(response.read())
-                if data.get('success'):
-                    devices = data.get('records', [])
+            if r.status_code == 200:
+                response_data = r.json()
+                if response_data.get('success'):
+                    devices = response_data.get('records', [])
                     devices = {d['deviceId']: d['deviceName'] for d in devices}
                     devices.update({'': ''})
                     return devices
                 else:
-                    error_msg = data.get('errorMessage')
-                    logger.info(u"PlexPy Notifiers :: Unable to retrieve Join devices list: %s" % error_msg)
+                    error_msg = response_data.get('errorMessage')
+                    logger.info(u"PlexPy Notifiers :: Unable to retrieve {name} devices list: {msg}".format(name=self.NAME, msg=error_msg))
                     return {'': ''}
-            elif request_status >= 400 and request_status < 500:
-                logger.warn(u"PlexPy Notifiers :: Unable to retrieve Join devices list: %s" % response.reason)
-                return {'': ''}
             else:
-                logger.warn(u"PlexPy Notifiers :: Unable to retrieve Join devices list.")
+                logger.error(u"PlexPy Notifiers :: Unable to retrieve {name} devices list: [{r.status_code}] {r.reason}".format(name=self.NAME, r=r))
+                logger.debug(u"PlexPy Notifiers :: Request response: {}".format(request.server_message(r, True)))
                 return {'': ''}
 
         else:
@@ -1909,10 +2032,124 @@ class JOIN(Notifier):
         return config_option
 
 
+class MQTT(Notifier):
+    """
+    MQTT notifications
+    """
+    _DEFAULT_CONFIG = {'broker': '',
+                       'port': 1883,
+                       'protocol': 'MQTTv311',
+                       'username': '',
+                       'password': '',
+                       'client_id': 'plexpy',
+                       'topic': '',
+                       'qos': 1,
+                       'retain': 0,
+                       'keep_alive': 60
+                       }
+
+    def notify(self, subject='', body='', action='', **kwargs):
+        if not subject or not body:
+            return
+
+        if not self.config['topic']:
+            logger.error(u"PlexPy Notifiers :: MQTT topic not specified.")
+            return
+
+        data = {'subject': subject.encode("utf-8"),
+                'body': body.encode("utf-8"),
+                'topic': self.config['topic'].encode("utf-8")}
+
+        auth = {}
+        if self.config['username']:
+            auth['username'] = self.config['username']
+        if self.config['password']:
+            auth['password'] = self.config['password']
+
+        single(self.config['topic'], payload=json.dumps(data), qos=self.config['qos'], retain=bool(self.config['retain']),
+               hostname=self.config['broker'], port=self.config['port'], client_id=self.config['client_id'],
+               keepalive=self.config['keep_alive'], auth=auth or None, protocol=self.config['protocol'])
+
+        return True
+
+    def return_config_options(self):
+        config_option = [{'label': 'Broker',
+                          'value': self.config['broker'],
+                          'name': 'mqtt_broker',
+                          'description': 'The hostname or IP address of the MQTT broker.',
+                          'input_type': 'text'
+                          },
+                         {'label': 'Port',
+                          'value': self.config['port'],
+                          'name': 'mqtt_port',
+                          'description': 'The network port for connecting to the MQTT broker.',
+                          'input_type': 'number'
+                          },
+                         {'label': 'Protocol',
+                          'value': self.config['protocol'],
+                          'name': 'mqtt_protocol',
+                          'description': 'The MQTT protocol version.',
+                          'input_type': 'select',
+                          'select_options': {'MQTTv31': '3.1',
+                                             'MQTTv311': '3.1.1'
+                                             }
+                          },
+                         {'label': 'Client ID',
+                          'value': self.config['client_id'],
+                          'name': 'mqtt_client_id',
+                          'description': 'The client ID for connecting to the MQTT broker.',
+                          'input_type': 'text'
+                          },
+                         {'label': 'Username',
+                          'value': self.config['username'],
+                          'name': 'mqtt_username',
+                          'description': 'The username to authenticate with the MQTT broker.',
+                          'input_type': 'text'
+                          },
+                         {'label': 'Password',
+                          'value': self.config['password'],
+                          'name': 'mqtt_password',
+                          'description': 'The password to authenticate with the MQTT broker.',
+                          'input_type': 'password'
+                          },
+                         {'label': 'Topic',
+                          'value': self.config['topic'],
+                          'name': 'mqtt_topic',
+                          'description': 'The topic to publish notifications to.',
+                          'input_type': 'text'
+                          },
+                         {'label': 'Quality of Service',
+                          'value': self.config['qos'],
+                          'name': 'mqtt_qos',
+                          'description': 'The quality of service level to use when publishing the notification.',
+                          'input_type': 'select',
+                          'select_options': {0: 0,
+                                             1: 1,
+                                             2: 2
+                                             }
+                          },
+                         {'label': 'Retain Message',
+                          'value': self.config['retain'],
+                          'name': 'mqtt_retain',
+                          'description': 'Set the message to be retained on the MQTT broker.',
+                          'input_type': 'checkbox'
+                          },
+                         {'label': 'Keep-Alive',
+                          'value': self.config['keep_alive'],
+                          'name': 'mqtt_keep_alive',
+                          'description': 'Maximum period in seconds before timing out the connection with the broker.',
+                          'input_type': 'number'
+                          }
+                         ]
+
+        return config_option
+
+
 class NMA(Notifier):
     """
     Notify My Android notifications
     """
+    NAME = 'Notify My Android'
     _DEFAULT_CONFIG = {'apikey': '',
                        'priority': 0
                        }
@@ -1933,12 +2170,12 @@ class NMA(Notifier):
 
         response = p.push(title, subject, body, priority=self.config['priority'], batch_mode=batch)
 
-        if not response[self.config['apikey']][u'code'] == u'200':
-            logger.warn(u"PlexPy Notifiers :: NotifyMyAndroid notification failed.")
-            return False
-        else:
-            logger.info(u"PlexPy Notifiers :: NotifyMyAndroid notification sent.")
+        if response[self.config['apikey']][u'code'] == u'200':
+            logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
             return True
+        else:
+            logger.error(u"PlexPy Notifiers :: {name} notification failed.".format(name=self.NAME))
+            return False
 
     def return_config_options(self):
         config_option = [{'label': 'NotifyMyAndroid API Key',
@@ -1963,6 +2200,7 @@ class OSX(Notifier):
     """
     OSX notifications
     """
+    NAME = 'OSX Notify'
     _DEFAULT_CONFIG = {'notify_app': '/Applications/PlexPy'
                        }
 
@@ -2032,13 +2270,13 @@ class OSX(Notifier):
 
             notification_center = NSUserNotificationCenter.defaultUserNotificationCenter()
             notification_center.deliverNotification_(notification)
-            logger.info(u"PlexPy Notifiers :: OSX Notify notification sent.")
+            logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
 
             del pool
             return True
 
         except Exception as e:
-            logger.warn(u"PlexPy Notifiers :: OSX notification failed: %s" % e)
+            logger.error(u"PlexPy Notifiers :: {name} failed: {e}".format(name=self.NAME, e=e))
             return False
 
     def return_config_options(self):
@@ -2058,6 +2296,7 @@ class PLEX(Notifier):
     """
     Plex Home Theater notifications
     """
+    NAME = 'Plex Home Theater'
     _DEFAULT_CONFIG = {'hosts': '',
                        'username': '',
                        'password': '',
@@ -2066,7 +2305,7 @@ class PLEX(Notifier):
                        }
 
     def _sendhttp(self, host, command):
-        url_command = urllib.urlencode(command)
+        url_command = urlencode(command)
         url = host + '/xbmcCmds/xbmcHttp/?' + url_command
 
         if self.config['password']:
@@ -2105,7 +2344,7 @@ class PLEX(Notifier):
             image = os.path.join(plexpy.DATA_DIR, os.path.abspath("data/interfaces/default/images/favicon.png"))
 
         for host in hosts:
-            logger.info(u"PlexPy Notifiers :: Sending notification command to Plex Home Theater @ " + host)
+            logger.info(u"PlexPy Notifiers :: Sending notification command to {name} @ {host}".format(name=self.NAME, host=host))
             try:
                 version = self._sendjson(host, 'Application.GetProperties', {'properties': ['version']})['version']['major']
 
@@ -2121,10 +2360,10 @@ class PLEX(Notifier):
                 if not request:
                     raise Exception
                 else:
-                    logger.info(u"PlexPy Notifiers :: Plex Home Theater notification sent.")
+                    logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
 
             except Exception as e:
-                logger.warn(u"PlexPy Notifiers :: Plex Home Theater notification failed: %s." % e)
+                logger.error(u"PlexPy Notifiers :: {name} notification failed: {e}".format(name=self.NAME, e=e))
                 return False
                 
         return True
@@ -2169,6 +2408,7 @@ class PROWL(Notifier):
     """
     Prowl notifications.
     """
+    NAME = 'Prowl'
     _DEFAULT_CONFIG = {'keys': '',
                        'priority': 0
                        }
@@ -2182,24 +2422,10 @@ class PROWL(Notifier):
                 'event': subject.encode("utf-8"),
                 'description': body.encode("utf-8"),
                 'priority': self.config['priority']}
+        
+        headers = {'Content-type': 'application/x-www-form-urlencoded'}
 
-        http_handler = HTTPSConnection("api.prowlapp.com")
-        http_handler.request("POST",
-                             "/publicapi/add",
-                             headers={'Content-type': "application/x-www-form-urlencoded"},
-                             body=urlencode(data))
-        response = http_handler.getresponse()
-        request_status = response.status
-
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Prowl notification sent.")
-            return True
-        elif request_status == 401:
-            logger.warn(u"PlexPy Notifiers :: Prowl notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Prowl notification failed.")
-            return False
+        return self.make_request('https://api.prowlapp.com/publicapi/add', headers=headers, data=data)
 
     def return_config_options(self):
         config_option = [{'label': 'Prowl API Key',
@@ -2224,6 +2450,7 @@ class PUSHALOT(Notifier):
     """
     Pushalot notifications
     """
+    NAME = 'Pushalot'
     _DEFAULT_CONFIG = {'apikey': ''
                        }
 
@@ -2235,23 +2462,9 @@ class PUSHALOT(Notifier):
                 'Title': subject.encode('utf-8'),
                 'Body': body.encode("utf-8")}
 
-        http_handler = HTTPSConnection("pushalot.com")
-        http_handler.request("POST",
-                             "/api/sendmessage",
-                             headers={'Content-type': "application/x-www-form-urlencoded"},
-                             body=urlencode(data))
-        response = http_handler.getresponse()
-        request_status = response.status
+        headers = {'Content-type': 'application/x-www-form-urlencoded'}
 
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Pushalot notification sent.")
-            return True
-        elif request_status == 410:
-            logger.warn(u"PlexPy Notifiers :: Pushalot notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Pushalot notification failed.")
-            return False
+        return self.make_request('https://pushalot.com/api/sendmessage', headers=headers, data=data)
 
     def return_config_options(self):
         config_option = [{'label': 'Pushalot API Key',
@@ -2269,6 +2482,7 @@ class PUSHBULLET(Notifier):
     """
     Pushbullet notifications
     """
+    NAME = 'Pushbullet'
     _DEFAULT_CONFIG = {'apikey': '',
                        'deviceid': '',
                        'channel_tag': ''
@@ -2278,7 +2492,7 @@ class PUSHBULLET(Notifier):
         if not subject or not body:
             return
 
-        data = {'type': "note",
+        data = {'type': 'note',
                 'title': subject.encode("utf-8"),
                 'body': body.encode("utf-8")}
 
@@ -2288,51 +2502,29 @@ class PUSHBULLET(Notifier):
         elif self.config['channel_tag']:
             data['channel_tag'] = self.config['channel_tag']
 
-        http_handler = HTTPSConnection("api.pushbullet.com")
-        http_handler.request("POST",
-                             "/v2/pushes",
-                             headers={
-                                 'Content-type': "application/json",
-                                 'Access-Token': self.config['apikey']
-                                 },
-                             body=json.dumps(data))
-        response = http_handler.getresponse()
-        request_status = response.status
+        headers = {'Content-type': 'application/json',
+                   'Access-Token': self.config['apikey']
+                   }
 
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: PushBullet notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: PushBullet notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: PushBullet notification failed.")
-            return False
+        return self.make_request('https://api.pushbullet.com/v2/pushes', headers=headers, json=data)
 
     def get_devices(self):
         if self.config['apikey']:
-            http_handler = HTTPSConnection("api.pushbullet.com")
-            http_handler.request("GET",
-                                 "/v2/devices",
-                                 headers={
-                                     'Content-type': "application/json",
-                                     'Access-Token': self.config['apikey']
-                                     })
+            headers={'Content-type': "application/json",
+                     'Access-Token': self.config['apikey']
+                     }
 
-            response = http_handler.getresponse()
-            request_status = response.status
+            r = requests.get('https://api.pushbullet.com/v2/devices', headers=headers)
 
-            if request_status == 200:
-                data = json.loads(response.read())
-                devices = data.get('devices', [])
+            if r.status_code == 200:
+                response_data = r.json()
+                devices = response_data.get('devices', [])
                 devices = {d['iden']: d['nickname'] for d in devices if d['active']}
                 devices.update({'': ''})
                 return devices
-            elif request_status >= 400 and request_status < 500:
-                logger.warn(u"PlexPy Notifiers :: Unable to retrieve Pushbullet devices list: %s" % response.reason)
-                return {'': ''}
             else:
-                logger.warn(u"PlexPy Notifiers :: Unable to retrieve Pushbullet devices list.")
+                logger.error(u"PlexPy Notifiers :: Unable to retrieve {name} devices list: [{r.status_code}] {r.reason}".format(name=self.NAME, r=r))
+                logger.debug(u"PlexPy Notifiers :: Request response: {}".format(request.server_message(r, True)))
                 return {'': ''}
 
         else:
@@ -2369,13 +2561,16 @@ class PUSHOVER(Notifier):
     """
     Pushover notifications
     """
+    NAME = 'Pushover'
     _DEFAULT_CONFIG = {'apitoken': '',
                        'keys': '',
                        'html_support': 1,
                        'priority': 0,
                        'sound': '',
                        'incl_url': 1,
-                       'incl_pmslink': 0
+                       'movie_provider': '',
+                       'tv_provider': '',
+                       'music_provider': ''
                        }
 
     def notify(self, subject='', body='', action='', **kwargs):
@@ -2393,52 +2588,40 @@ class PUSHOVER(Notifier):
         if self.config['incl_url'] and kwargs.get('parameters', {}).get('media_type'):
             # Grab formatted metadata
             pretty_metadata = PrettyMetadata(kwargs['parameters'])
-            plex_url = pretty_metadata.get_plex_url()
-            provider_link = pretty_metadata.get_provider_link()
-            caption = pretty_metadata.get_caption()
 
-            if self.config['incl_pmslink']:
-                data['url'] = plex_url
-                data['url_title'] = 'View on Plex Web'
+            if pretty_metadata.media_type == 'movie':
+                provider = self.config['movie_provider']
+            elif pretty_metadata.media_type in ('show', 'season', 'episode'):
+                provider = self.config['tv_provider']
+            elif pretty_metadata.media_type in ('artist', 'album', 'track'):
+                provider = self.config['music_provider']
             else:
-                data['url'] = provider_link
-                data['url_title'] = caption
+                provider = None
 
-        http_handler = HTTPSConnection("api.pushover.net")
-        http_handler.request("POST",
-                             "/1/messages.json",
-                             headers={'Content-type': "application/x-www-form-urlencoded"},
-                             body=urlencode(data))
-        response = http_handler.getresponse()
-        request_status = response.status
+            provider_link = pretty_metadata.get_provider_link(provider)
+            caption = pretty_metadata.get_caption(provider)
 
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Pushover notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Pushover notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Pushover notification failed.")
-            return False
+            data['url'] = provider_link
+            data['url_title'] = caption
+
+        headers = {'Content-type': 'application/x-www-form-urlencoded'}
+
+        return self.make_request('https://api.pushover.net/1/messages.json', headers=headers, data=data)
 
     def get_sounds(self):
         if self.config['apitoken']:
-            http_handler = HTTPSConnection("api.pushover.net")
-            http_handler.request("GET", "/1/sounds.json?token=" + self.config['apitoken'])
-            response = http_handler.getresponse()
-            request_status = response.status
+            params = {'token': self.config['apitoken']}
 
-            if request_status == 200:
-                data = json.loads(response.read())
-                sounds = data.get('sounds', {})
+            r = requests.get('https://api.pushover.net/1/sounds.json', params=params)
+
+            if r.status_code == 200:
+                response_data = r.json()
+                sounds = response_data.get('sounds', {})
                 sounds.update({'': ''})
                 return sounds
-            elif request_status >= 400 and request_status < 500:
-                logger.warn(u"PlexPy Notifiers :: Unable to retrieve Pushover notification sounds list: %s" % response.reason)
-                return {'': ''}
             else:
-                logger.warn(u"PlexPy Notifiers :: Unable to retrieve Pushover notification sounds list.")
+                logger.error(u"PlexPy Notifiers :: Unable to retrieve {name} sounds list: [{r.status_code}] {r.reason}".format(name=self.NAME, r=r))
+                logger.debug(u"PlexPy Notifiers :: Request response: {}".format(request.server_message(r, True)))
                 return {'': ''}
 
         else:
@@ -2481,14 +2664,29 @@ class PUSHOVER(Notifier):
                          {'label': 'Include supplementary URL',
                           'value': self.config['incl_url'],
                           'name': 'pushover_incl_url',
-                          'description': 'Include a supplementary URL to IMDB, TVDB, TMDb, or Last.fm with the notifications.',
+                          'description': 'Include a supplementary URL with the notifications.',
                           'input_type': 'checkbox'
                           },
-                         {'label': 'Supplementary URL to Plex Web',
-                          'value': self.config['incl_pmslink'],
-                          'name': 'pushover_incl_pmslink',
-                          'description': 'Enable to change the supplementary URL to the media in Plex Web.',
-                          'input_type': 'checkbox'
+                         {'label': 'Movie Link Source',
+                          'value': self.config['movie_provider'],
+                          'name': 'pushover_movie_provider',
+                          'description': 'Select the source for movie links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_movie_providers()
+                          },
+                         {'label': 'TV Show Link Source',
+                          'value': self.config['tv_provider'],
+                          'name': 'pushover_tv_provider',
+                          'description': 'Select the source for tv show links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_tv_providers()
+                          },
+                         {'label': 'Music Link Source',
+                          'value': self.config['music_provider'],
+                          'name': 'pushover_music_provider',
+                          'description': 'Select the source for music links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_music_providers()
                           }
                          ]
 
@@ -2499,6 +2697,7 @@ class SCRIPTS(Notifier):
     """
     Script notifications
     """
+    NAME = 'Script'
     _DEFAULT_CONFIG = {'script_folder': '',
                        'script': '',
                        'timeout': 30
@@ -2676,6 +2875,7 @@ class SLACK(Notifier):
     """
     Slack Notifications
     """
+    NAME = 'Slack'
     _DEFAULT_CONFIG = {'hook': '',
                        'channel': '',
                        'username': '',
@@ -2685,7 +2885,10 @@ class SLACK(Notifier):
                        'incl_card': 0,
                        'incl_description': 1,
                        'incl_thumbnail': 0,
-                       'incl_pmslink': 0
+                       'incl_pmslink': 0,
+                       'movie_provider': '',
+                       'tv_provider': '',
+                       'music_provider': ''
                        }
 
     def notify(self, subject='', body='', action='', **kwargs):
@@ -2711,13 +2914,22 @@ class SLACK(Notifier):
         if self.config['incl_card'] and kwargs.get('parameters', {}).get('media_type'):
             # Grab formatted metadata
             pretty_metadata = PrettyMetadata(kwargs['parameters'])
-            media_type = pretty_metadata.media_type
+
+            if pretty_metadata.media_type == 'movie':
+                provider = self.config['movie_provider']
+            elif pretty_metadata.media_type in ('show', 'season', 'episode'):
+                provider = self.config['tv_provider']
+            elif pretty_metadata.media_type in ('artist', 'album', 'track'):
+                provider = self.config['music_provider']
+            else:
+                provider = None
+
             poster_url = pretty_metadata.get_poster_url()
-            plex_url = pretty_metadata.get_plex_url()
-            provider = pretty_metadata.get_provider()
-            provider_link = pretty_metadata.get_provider_link()
+            provider_name = pretty_metadata.get_provider_name(provider)
+            provider_link = pretty_metadata.get_provider_link(provider)
             title = pretty_metadata.get_title()
             description = pretty_metadata.get_description()
+            plex_url = pretty_metadata.get_plex_url()
 
             # Build Slack post attachment
             attachment = {'fallback': 'Image for %s' % title,
@@ -2732,14 +2944,14 @@ class SLACK(Notifier):
             else:
                 attachment['image_url'] = poster_url
 
-            if self.config['incl_description'] or media_type in ('artist', 'album', 'track'):
+            if self.config['incl_description'] or pretty_metadata.media_type in ('artist', 'album', 'track'):
                 attachment['text'] = description
 
             fields = []
             if provider_link:
                 attachment['title_link'] = provider_link
                 fields.append({'title': 'View Details',
-                               'value': '<%s|%s>' % (provider_link, provider),
+                               'value': '<%s|%s>' % (provider_link, provider_name),
                                'short': True})
             if self.config['incl_pmslink']:
                 fields.append({'title': 'View Details',
@@ -2750,28 +2962,9 @@ class SLACK(Notifier):
 
             data['attachments'] = [attachment]
 
-        host = urlparse(self.config['hook']).hostname
-        port = urlparse(self.config['hook']).port
-        path = urlparse(self.config['hook']).path
+        headers = {'Content-type': 'application/json'}
 
-        http_handler = HTTPSConnection(host, port)
-        http_handler.request("POST",
-                             path,
-                             headers={'Content-type': "application/json"},
-                             body=json.dumps(data))
-
-        response = http_handler.getresponse()
-        request_status = response.status
-
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Slack notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Slack notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Slack notification failed.")
-            return False
+        return self.make_request(self.config['hook'], headers=headers, json=data)
 
     def return_config_options(self):
         config_option = [{'label': 'Slack Webhook URL',
@@ -2833,6 +3026,27 @@ class SLACK(Notifier):
                           'name': 'slack_incl_thumbnail',
                           'description': 'Use a thumbnail instead of a full sized poster on the info card.',
                           'input_type': 'checkbox'
+                          },
+                         {'label': 'Movie Link Source',
+                          'value': self.config['movie_provider'],
+                          'name': 'slack_movie_provider',
+                          'description': 'Select the source for movie links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_movie_providers()
+                          },
+                         {'label': 'TV Show Link Source',
+                          'value': self.config['tv_provider'],
+                          'name': 'slack_tv_provider',
+                          'description': 'Select the source for tv show links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_tv_providers()
+                          },
+                         {'label': 'Music Link Source',
+                          'value': self.config['music_provider'],
+                          'name': 'slack_music_provider',
+                          'description': 'Select the source for music links on the info cards. Leave blank for default.',
+                          'input_type': 'select',
+                          'select_options': PrettyMetadata().get_music_providers()
                           }
                          ]
 
@@ -2843,6 +3057,7 @@ class TELEGRAM(Notifier):
     """
     Telegram notifications
     """
+    NAME = 'Telegram'
     _DEFAULT_CONFIG = {'bot_token': '',
                        'chat_id': '',
                        'disable_web_preview': 0,
@@ -2870,19 +3085,19 @@ class TELEGRAM(Notifier):
             poster_url = parameters.get('poster_url','')
 
             if poster_url:
-                files = {'photo': (poster_url, urllib.urlopen(poster_url).read())}
-                response = requests.post('https://api.telegram.org/bot%s/%s' % (self.config['bot_token'], 'sendPhoto'),
-                                         data=poster_data,
-                                         files=files)
-                request_status = response.status_code
-                request_content = json.loads(response.text)
+                poster_request = requests.get(poster_url)
+                poster_content = poster_request.content
 
-                if request_status == 200:
-                    logger.info(u"PlexPy Notifiers :: Telegram poster sent.")
-                elif request_status >= 400 and request_status < 500:
-                    logger.warn(u"PlexPy Notifiers :: Telegram poster failed: %s" % request_content.get('description'))
+                files = {'photo': (poster_url, poster_content)}
+
+                r = requests.post('https://api.telegram.org/bot{}/sendPhoto'.format(self.config['bot_token']),
+                                  data=poster_data, files=files)
+
+                if r.status_code == 200:
+                    logger.info(u"PlexPy Notifiers :: {name} poster sent.".format(name=self.NAME))
                 else:
-                    logger.warn(u"PlexPy Notifiers :: Telegram poster failed.")
+                    logger.error(u"PlexPy Notifiers :: {name} poster failed: [{r.status_code}] {r.reason}".format(name=self.NAME, r=r))
+                    logger.debug(u"PlexPy Notifiers :: Request response: {}".format(request.server_message(r, True)))
 
         data['text'] = text
 
@@ -2892,24 +3107,9 @@ class TELEGRAM(Notifier):
         if self.config['disable_web_preview']:
             data['disable_web_page_preview'] = True
 
-        http_handler = HTTPSConnection("api.telegram.org")
-        http_handler.request('POST',
-                             '/bot%s/%s' % (self.config['bot_token'], 'sendMessage'),
-                             headers={'Content-type': 'application/x-www-form-urlencoded'},
-                             body=urlencode(data))
+        headers = {'Content-type': 'application/x-www-form-urlencoded'}
 
-        response = http_handler.getresponse()
-        request_status = response.status
-
-        if request_status == 200:
-            logger.info(u"PlexPy Notifiers :: Telegram notification sent.")
-            return True
-        elif request_status >= 400 and request_status < 500:
-            logger.warn(u"PlexPy Notifiers :: Telegram notification failed: [%s] %s" % (request_status, response.reason))
-            return False
-        else:
-            logger.warn(u"PlexPy Notifiers :: Telegram notification failed.")
-            return False
+        return self.make_request('https://api.telegram.org/bot{}/sendMessage'.format(self.config['bot_token']), headers=headers, data=data)
 
     def return_config_options(self):
         config_option = [{'label': 'Telegram Bot Token',
@@ -2961,6 +3161,7 @@ class TWITTER(Notifier):
     """
     Twitter notifications
     """
+    NAME = 'Twitter'
     REQUEST_TOKEN_URL = 'https://api.twitter.com/oauth/request_token'
     ACCESS_TOKEN_URL = 'https://api.twitter.com/oauth/access_token'
     AUTHORIZATION_URL = 'https://api.twitter.com/oauth/authorize'
@@ -2985,10 +3186,10 @@ class TWITTER(Notifier):
 
         try:
             api.PostUpdate(message, media=attachment)
-            logger.info(u"PlexPy Notifiers :: Twitter notification sent.")
+            logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
             return True
         except Exception as e:
-            logger.warn(u"PlexPy Notifiers :: Twitter notification failed: %s" % e)
+            logger.error(u"PlexPy Notifiers :: {name} notification failed: {e}".format(name=self.NAME, e=e))
             return False
 
     def notify(self, subject='', body='', action='', **kwargs):
@@ -3060,6 +3261,7 @@ class XBMC(Notifier):
     """
     XBMC notifications
     """
+    NAME = 'XBMC'
     _DEFAULT_CONFIG = {'hosts': '',
                        'username': '',
                        'password': '',
@@ -3068,7 +3270,7 @@ class XBMC(Notifier):
                        }
 
     def _sendhttp(self, host, command):
-        url_command = urllib.urlencode(command)
+        url_command = urlencode(command)
         url = host + '/xbmcCmds/xbmcHttp/?' + url_command
 
         if self.config['password']:
@@ -3123,10 +3325,10 @@ class XBMC(Notifier):
                 if not request:
                     raise Exception
                 else:
-                    logger.info(u"PlexPy Notifiers :: XBMC notification sent.")
+                    logger.info(u"PlexPy Notifiers :: {name} notification sent.".format(name=self.NAME))
 
             except Exception as e:
-                logger.warn(u"PlexPy Notifiers :: Plex Home Theater notification failed: %s." % e)
+                logger.error(u"PlexPy Notifiers :: {name} notification failed: {e}".format(name=self.NAME, e=e))
                 return False
 
         return True
@@ -3280,3 +3482,4 @@ def upgrade_config_to_db():
                 # Add a new notifier and update the config
                 notifier_id = add_notifier_config(agent_id=agent_id)
                 set_notifier_config(notifier_id=notifier_id, agent_id=agent_id, **notifier_config)
+

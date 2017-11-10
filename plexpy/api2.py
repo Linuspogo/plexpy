@@ -109,6 +109,7 @@ class API2:
         self._api_out_type = kwargs.pop('out_type', 'json')
 
         if ((self._api_apikey == plexpy.CONFIG.API_KEY or 
+             self._api_apikey == mobile_app.TEMP_DEVICE_TOKEN or 
              mobile_app.get_mobile_device_by_token(self._api_apikey)) and 
             plexpy.CONFIG.API_ENABLED and self._api_cmd in self._api_valid_methods):
             self._api_authenticated = True
@@ -121,9 +122,9 @@ class API2:
             self._api_kwargs = kwargs
 
         if self._api_msg:
-            logger.debug(u'PlexPy APIv2 :: %s.' % self._api_msg)
+            logger.api_debug(u'PlexPy APIv2 :: %s.' % self._api_msg)
 
-        logger.debug(u'PlexPy APIv2 :: Cleaned kwargs: %s' % self._api_kwargs)
+        logger.api_debug(u'PlexPy APIv2 :: Cleaned kwargs: %s' % self._api_kwargs)
 
         return self._api_kwargs
 
@@ -161,7 +162,7 @@ class API2:
         end = int(kwargs.get('end', 0))
 
         if regex:
-            logger.debug(u'PlexPy APIv2 :: Filtering log using regex %s' % regex)
+            logger.api_debug(u'PlexPy APIv2 :: Filtering log using regex %s' % regex)
             reg = re.compile('u' + regex, flags=re.I)
 
         for line in open(logfile, 'r').readlines():
@@ -193,15 +194,15 @@ class API2:
                 templog.append(d)
 
         if end > 0 or start > 0:
-                logger.debug(u'PlexPy APIv2 :: Slicing the log from %s to %s' % (start, end))
+                logger.api_debug(u'PlexPy APIv2 :: Slicing the log from %s to %s' % (start, end))
                 templog = templog[start:end]
 
         if sort:
-            logger.debug(u'PlexPy APIv2 :: Sorting log based on %s' % sort)
+            logger.api_debug(u'PlexPy APIv2 :: Sorting log based on %s' % sort)
             templog = sorted(templog, key=lambda k: k[sort])
 
         if search:
-            logger.debug(u'PlexPy APIv2 :: Searching log values for %s' % search)
+            logger.api_debug(u'PlexPy APIv2 :: Searching log values for %s' % search)
             tt = [d for d in templog for k, v in d.items() if search.lower() in v.lower()]
 
             if len(tt):
@@ -454,7 +455,7 @@ General optional parameters:
         data = None
         apikey = hashlib.sha224(str(random.getrandbits(256))).hexdigest()[0:32]
         if plexpy.CONFIG.HTTP_USERNAME and plexpy.CONFIG.HTTP_PASSWORD:
-            if username == plexpy.HTTP_USERNAME and password == plexpy.CONFIG.HTTP_PASSWORD:
+            if username == plexpy.CONFIG.HTTP_USERNAME and password == plexpy.CONFIG.HTTP_PASSWORD:
                 if plexpy.CONFIG.API_KEY:
                     data = plexpy.CONFIG.API_KEY
                 else:
@@ -499,16 +500,16 @@ General optional parameters:
             cherrypy.response.headers['Content-Type'] = 'application/json;charset=UTF-8'
             try:
                 if self._api_debug:
-                    out = json.dumps(out, indent=4, sort_keys=True)
+                    out = json.dumps(out, indent=4, sort_keys=True, ensure_ascii=False).encode('utf-8')
                 else:
-                    out = json.dumps(out)
+                    out = json.dumps(out, ensure_ascii=False).encode('utf-8')
                 if self._api_callback is not None:
                     cherrypy.response.headers['Content-Type'] = 'application/javascript'
                     # wrap with JSONP call if requested
                     out = self._api_callback + '(' + out + ');'
             # if we fail to generate the output fake an error
             except Exception as e:
-                logger.info(u'PlexPy APIv2 :: ' + traceback.format_exc())
+                logger.api_exception(u'PlexPy APIv2 :: ' + traceback.format_exc())
                 out['message'] = traceback.format_exc()
                 out['result'] = 'error'
 
@@ -517,14 +518,14 @@ General optional parameters:
             try:
                 out = xmltodict.unparse(out, pretty=True)
             except Exception as e:
-                logger.error(u'PlexPy APIv2 :: Failed to parse xml result')
+                logger.api_error(u'PlexPy APIv2 :: Failed to parse xml result')
                 try:
                     out['message'] = e
                     out['result'] = 'error'
                     out = xmltodict.unparse(out, pretty=True)
 
                 except Exception as e:
-                    logger.error(u'PlexPy APIv2 :: Failed to parse xml result error message %s' % e)
+                    logger.api_error(u'PlexPy APIv2 :: Failed to parse xml result error message %s' % e)
                     out = '''<?xml version="1.0" encoding="utf-8"?>
                                 <response>
                                     <message>%s</message>
@@ -539,7 +540,7 @@ General optional parameters:
         """ handles the stuff from the handler """
 
         result = {}
-        logger.debug(u'PlexPy APIv2 :: API called with kwargs: %s' % kwargs)
+        logger.api_debug(u'PlexPy APIv2 :: API called with kwargs: %s' % kwargs)
 
         self._api_validate(**kwargs)
 
@@ -557,7 +558,7 @@ General optional parameters:
 
                 result = call(**self._api_kwargs)
             except Exception as e:
-                logger.error(u'PlexPy APIv2 :: Failed to run %s with %s: %s' % (self._api_cmd, self._api_kwargs, e))
+                logger.api_error(u'PlexPy APIv2 :: Failed to run %s with %s: %s' % (self._api_cmd, self._api_kwargs, e))
                 if self._api_debug:
                     cherrypy.request.show_tracebacks = True
                     # Reraise the exception so the traceback hits the browser

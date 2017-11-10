@@ -17,6 +17,7 @@ import arrow
 import os
 import re
 import shutil
+import time
 
 from configobj import ConfigObj
 
@@ -203,6 +204,7 @@ _CONFIG_DEFINITIONS = {
     'HOME_STATS_COUNT': (int, 'General', 5),
     'HOME_STATS_CARDS': (list, 'General', ['top_movies', 'popular_movies', 'top_tv', 'popular_tv', 'top_music', \
         'popular_music', 'last_watched', 'top_users', 'top_platforms', 'most_concurrent']),
+    'HOME_STATS_RECENTLY_ADDED_COUNT': (int, 'General', 50),
     'HTTPS_CREATE_CERT': (int, 'General', 1),
     'HTTPS_CERT': (str, 'General', ''),
     'HTTPS_CERT_CHAIN': (str, 'General', ''),
@@ -288,11 +290,13 @@ _CONFIG_DEFINITIONS = {
     'MOVIE_NOTIFY_ON_START': (int, 'Monitoring', 1),
     'MOVIE_NOTIFY_ON_STOP': (int, 'Monitoring', 0),
     'MOVIE_NOTIFY_ON_PAUSE': (int, 'Monitoring', 0),
+    'MOVIE_WATCHED_PERCENT': (int, 'Monitoring', 85),
     'MUSIC_LOGGING_ENABLE': (int, 'Monitoring', 1),
     'MUSIC_NOTIFY_ENABLE': (int, 'Monitoring', 0),
     'MUSIC_NOTIFY_ON_START': (int, 'Monitoring', 1),
     'MUSIC_NOTIFY_ON_STOP': (int, 'Monitoring', 0),
     'MUSIC_NOTIFY_ON_PAUSE': (int, 'Monitoring', 0),
+    'MUSIC_WATCHED_PERCENT': (int, 'Monitoring', 85),
     'MONITOR_PMS_UPDATES': (int, 'Monitoring', 0),
     'MONITOR_REMOTE_ACCESS': (int, 'Monitoring', 0),
     'MONITORING_INTERVAL': (int, 'Monitoring', 60),
@@ -544,11 +548,15 @@ _CONFIG_DEFINITIONS = {
     'TELEGRAM_ON_PMSUPDATE': (int, 'Telegram', 0),
     'TELEGRAM_ON_CONCURRENT': (int, 'Telegram', 0),
     'TELEGRAM_ON_NEWDEVICE': (int, 'Telegram', 0),
+    'THEMOVIEDB_APIKEY': (str, 'General', 'e9a6655bae34bf694a0f3e33338dc28e'),
+    'THEMOVIEDB_LOOKUP': (int, 'General', 0),
+    'TVMAZE_LOOKUP': (int, 'General', 0),
     'TV_LOGGING_ENABLE': (int, 'Monitoring', 1),
     'TV_NOTIFY_ENABLE': (int, 'Monitoring', 0),
     'TV_NOTIFY_ON_START': (int, 'Monitoring', 1),
     'TV_NOTIFY_ON_STOP': (int, 'Monitoring', 0),
     'TV_NOTIFY_ON_PAUSE': (int, 'Monitoring', 0),
+    'TV_WATCHED_PERCENT': (int, 'Monitoring', 85),
     'TWITTER_ENABLED': (int, 'Twitter', 0),
     'TWITTER_ACCESS_TOKEN': (str, 'Twitter', ''),
     'TWITTER_ACCESS_TOKEN_SECRET': (str, 'Twitter', ''),
@@ -574,6 +582,7 @@ _CONFIG_DEFINITIONS = {
     'UPDATE_SECTION_IDS': (int, 'General', 1),
     'UPDATE_SHOW_CHANGELOG': (int, 'General', 1),
     'UPDATE_LABELS': (int, 'General', 1),
+    'UPDATE_LIBRARIES_DB_NOTIFY': (int, 'General', 1),
     'UPDATE_NOTIFIERS_DB': (int, 'General', 1),
     'VERIFY_SSL_CERT': (bool_int, 'Advanced', 1),
     'VIDEO_LOGGING_ENABLE': (int, 'Monitoring', 1),
@@ -623,7 +632,7 @@ def make_backup(cleanup=False, scheduler=False):
 
     if cleanup:
         now = time.time()
-        # Delete all scheduled backup files except from the last 5.
+        # Delete all scheduled backup older than BACKUP_DAYS.
         for root, dirs, files in os.walk(backup_folder):
             ini_files = [os.path.join(root, f) for f in files if f.endswith('.sched.ini')]
             for file_ in ini_files:
@@ -854,3 +863,10 @@ class Config(object):
             self.HTTP_PROXY = 1
 
             self.CONFIG_VERSION = 8
+
+        if self.CONFIG_VERSION == 8:
+            self.MOVIE_WATCHED_PERCENT = self.NOTIFY_WATCHED_PERCENT
+            self.TV_WATCHED_PERCENT = self.NOTIFY_WATCHED_PERCENT
+            self.MUSIC_WATCHED_PERCENT = self.NOTIFY_WATCHED_PERCENT
+
+            self.CONFIG_VERSION == 9
